@@ -39,6 +39,8 @@ public class User {
 	@Column(nullable = false)
 	private LocalDateTime updatedAt;
 
+	private LocalDateTime deletedAt;
+
 	@PrePersist
 	protected void onCreate() {
 		createdAt = LocalDateTime.now();
@@ -54,5 +56,25 @@ public class User {
 		this.email = email;
 		this.nickname = nickname;
 		this.password = password;
+	}
+
+	public void updateNickname(String nickname) {
+		if (nickname != null && !nickname.isBlank()) {
+			this.nickname = nickname;
+		}
+	}
+
+	public void updatePassword(String encodedPassword) {
+		if (encodedPassword != null && !encodedPassword.isBlank()) {
+			this.password = encodedPassword;
+		}
+	}
+
+	public void delete() {
+		this.deletedAt = LocalDateTime.now();
+	}
+
+	public boolean isDeleted() {
+		return this.deletedAt != null;
 	}
 }

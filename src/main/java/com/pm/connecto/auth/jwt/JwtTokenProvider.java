@@ -16,19 +16,30 @@ import io.jsonwebtoken.security.Keys;
 public class JwtTokenProvider {
 
 	private final SecretKey secretKey;
-	private final long expirationTime;
+	private final long accessExpiration;
+	private final long refreshExpiration;
 
 	public JwtTokenProvider(
 		@Value("${jwt.secret}") String secret,
-		@Value("${jwt.expiration}") long expirationTime
+		@Value("${jwt.access-expiration}") long accessExpiration,
+		@Value("${jwt.refresh-expiration}") long refreshExpiration
 	) {
 		this.secretKey = Keys.hmacShaKeyFor(secret.getBytes());
-		this.expirationTime = expirationTime;
+		this.accessExpiration = accessExpiration;
+		this.refreshExpiration = refreshExpiration;
 	}
 
-	public String generateToken(Long userId) {
+	public String generateAccessToken(Long userId) {
+		return generateToken(userId, accessExpiration);
+	}
+
+	public String generateRefreshToken(Long userId) {
+		return generateToken(userId, refreshExpiration);
+	}
+
+	private String generateToken(Long userId, long expiration) {
 		Date now = new Date();
-		Date expiryDate = new Date(now.getTime() + expirationTime);
+		Date expiryDate = new Date(now.getTime() + expiration);
 
 		return Jwts.builder()
 			.subject(String.valueOf(userId))
@@ -57,5 +68,9 @@ public class JwtTokenProvider {
 			.parseSignedClaims(token)
 			.getPayload();
 		return Long.parseLong(claims.getSubject());
+	}
+
+	public long getRefreshExpiration() {
+		return refreshExpiration;
 	}
 }
