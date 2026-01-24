@@ -20,6 +20,8 @@ import com.pm.connecto.user.dto.UserCreateRequest;
 import com.pm.connecto.user.dto.UserResponse;
 import com.pm.connecto.user.service.UserService;
 
+import jakarta.validation.Valid;
+
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
@@ -34,13 +36,13 @@ public class AuthController {
 
 	@PostMapping("/signup")
 	@ResponseStatus(HttpStatus.CREATED)
-	public ApiResponse<UserResponse> signup(@RequestBody UserCreateRequest request) {
-		User user = userService.createUser(request.email(), request.nickname(), request.password());
+	public ApiResponse<UserResponse> signup(@Valid @RequestBody UserCreateRequest request) {
+		User user = userService.createUser(request.email(), request.password());
 		return ApiResponse.success(UserResponse.from(user));
 	}
 
 	@PostMapping("/login")
-	public ResponseEntity<ApiResponse<LoginResponse>> login(@RequestBody LoginRequest request) {
+	public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
 		User user = authService.authenticate(request.email(), request.password());
 
 		String accessToken = authService.generateAccessToken(user.getId());

@@ -11,6 +11,10 @@ import com.pm.connecto.user.domain.UserStatus;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
+	// ========== 상태 상수 (JPQL 파라미터용) ==========
+	UserStatus ACTIVE_STATUS = UserStatus.ACTIVE;
+	UserStatus DELETED_STATUS = UserStatus.DELETED;
+
 	// ========== 인증용 조회 (상태 무관, 이후 상태별 에러 처리 필요) ==========
 
 	/**
@@ -32,22 +36,41 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	/**
 	 * 활성 사용자만 조회 (ACTIVE 상태)
 	 */
-	@Query("SELECT u FROM User u WHERE u.id = :id AND u.status = 'ACTIVE'")
-	Optional<User> findById(@Param("id") Long id);
+	@Query("SELECT u FROM User u WHERE u.id = :id AND u.status = :status")
+	Optional<User> findByIdAndStatus(@Param("id") Long id, @Param("status") UserStatus status);
 
 	/**
 	 * 활성 사용자만 조회 (ACTIVE 상태)
 	 */
-	@Query("SELECT u FROM User u WHERE u.email = :email AND u.status = 'ACTIVE'")
-	Optional<User> findByEmail(@Param("email") String email);
+	default Optional<User> findActiveById(Long id) {
+		return findByIdAndStatus(id, ACTIVE_STATUS);
+	}
 
-	Optional<User> findByIdAndStatus(Long id, UserStatus status);
+	/**
+	 * 활성 사용자만 조회 (ACTIVE 상태)
+	 */
+	@Query("SELECT u FROM User u WHERE u.email = :email AND u.status = :status")
+	Optional<User> findByEmailAndStatus(@Param("email") String email, @Param("status") UserStatus status);
+
+	/**
+	 * 활성 사용자만 조회 (ACTIVE 상태)
+	 */
+	default Optional<User> findActiveByEmail(String email) {
+		return findByEmailAndStatus(email, ACTIVE_STATUS);
+	}
 
 	// ========== 존재 여부 확인 (DELETED 제외) ==========
 
-	@Query("SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END FROM User u WHERE u.email = :email AND u.status != 'DELETED'")
-	boolean existsByEmail(@Param("email") String email);
+	/**
+	 * 이메일 중복 확인 (삭제된 사용자 제외)
+	 */
+	@Query("SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END FROM User u WHERE u.email = :email AND u.status != :excludedStatus")
+	boolean existsByEmailExcludingStatus(@Param("email") String email, @Param("excludedStatus") UserStatus excludedStatus);
 
-	@Query("SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END FROM User u WHERE u.nickname = :nickname AND u.status != 'DELETED'")
-	boolean existsByNickname(@Param("nickname") String nickname);
+	/**
+	 * 이메일 중복 확인 (삭제된 사용자 제외)
+	 */
+	default boolean existsByEmail(String email) {
+		return existsByEmailExcludingStatus(email, DELETED_STATUS);
+	}
 }

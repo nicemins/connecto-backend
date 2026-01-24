@@ -2,40 +2,52 @@ package com.pm.connecto.common.response;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class ApiResponse<T> {
 
 	private boolean success;
 	private String code;
 	private String message;
 	private T data;
+	private Object errors;
 	private LocalDateTime timestamp;
 
-	private ApiResponse(boolean success, String code, String message, T data) {
+	private ApiResponse(boolean success, String code, String message, T data, Object errors) {
 		this.success = success;
 		this.code = code;
 		this.message = message;
 		this.data = data;
+		this.errors = errors;
 		this.timestamp = LocalDateTime.now();
 	}
 
 	public static <T> ApiResponse<T> success(T data) {
-		return new ApiResponse<>(true, null, null, data);
+		return new ApiResponse<>(true, null, null, data, null);
 	}
 
 	public static <T> ApiResponse<T> success(String message, T data) {
-		return new ApiResponse<>(true, null, message, data);
+		return new ApiResponse<>(true, null, message, data, null);
 	}
 
 	public static <T> ApiResponse<T> error(String message) {
-		return new ApiResponse<>(false, null, message, null);
+		return new ApiResponse<>(false, null, message, null, null);
 	}
 
 	public static <T> ApiResponse<T> error(ErrorCode errorCode) {
-		return new ApiResponse<>(false, errorCode.getCode(), errorCode.getMessage(), null);
+		return new ApiResponse<>(false, errorCode.getCode(), errorCode.getMessage(), null, null);
 	}
 
 	public static <T> ApiResponse<T> error(ErrorCode errorCode, String message) {
-		return new ApiResponse<>(false, errorCode.getCode(), message, null);
+		return new ApiResponse<>(false, errorCode.getCode(), message, null, null);
+	}
+
+	/**
+	 * Validation 오류 시 상세 에러 목록 포함
+	 */
+	public static <T> ApiResponse<T> error(ErrorCode errorCode, String message, Object errors) {
+		return new ApiResponse<>(false, errorCode.getCode(), message, null, errors);
 	}
 
 	public boolean isSuccess() {
@@ -52,6 +64,10 @@ public class ApiResponse<T> {
 
 	public T getData() {
 		return data;
+	}
+
+	public Object getErrors() {
+		return errors;
 	}
 
 	public LocalDateTime getTimestamp() {

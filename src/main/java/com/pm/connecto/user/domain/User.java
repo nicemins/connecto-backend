@@ -33,9 +33,6 @@ public class User {
 	@Column(nullable = false, unique = true, length = 100)
 	private String email;
 
-	@Column(nullable = false, length = 50)
-	private String nickname;
-
 	@Column(nullable = false)
 	private String password;
 
@@ -65,17 +62,10 @@ public class User {
 		updatedAt = LocalDateTime.now();
 	}
 
-	public User(String email, String nickname, String password) {
+	public User(String email, String password) {
 		this.email = email;
-		this.nickname = nickname;
 		this.password = password;
 		this.status = UserStatus.ACTIVE;
-	}
-
-	public void updateNickname(String nickname) {
-		if (nickname != null && !nickname.isBlank()) {
-			this.nickname = nickname;
-		}
 	}
 
 	public void updatePassword(String encodedPassword) {

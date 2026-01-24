@@ -27,17 +27,13 @@ public class UserService {
 	}
 
 	@Transactional
-	public User createUser(String email, String nickname, String password) {
+	public User createUser(String email, String password) {
 		if (userRepository.existsByEmail(email)) {
 			throw new DuplicateResourceException(ErrorCode.DUPLICATE_EMAIL);
 		}
 
-		if (userRepository.existsByNickname(nickname)) {
-			throw new DuplicateResourceException(ErrorCode.DUPLICATE_NICKNAME);
-		}
-
 		String encodedPassword = passwordEncoder.encode(password);
-		User user = new User(email, nickname, encodedPassword);
+		User user = new User(email, encodedPassword);
 		return userRepository.save(user);
 	}
 
@@ -68,7 +64,7 @@ public class UserService {
 
 	@Transactional(readOnly = true)
 	public User getMe(Long userId) {
-		return userRepository.findById(userId)
+		return userRepository.findActiveById(userId)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
 	}
 
@@ -76,21 +72,10 @@ public class UserService {
 		return !userRepository.existsByEmail(email);
 	}
 
-	public boolean isNicknameAvailable(String nickname) {
-		return !userRepository.existsByNickname(nickname);
-	}
-
 	@Transactional
-	public User updateUser(Long userId, String nickname, String password) {
-		User user = userRepository.findById(userId)
+	public User updateUser(Long userId, String password) {
+		User user = userRepository.findActiveById(userId)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
-
-		if (nickname != null && !nickname.isBlank()) {
-			if (userRepository.existsByNickname(nickname) && !user.getNickname().equals(nickname)) {
-				throw new DuplicateResourceException(ErrorCode.DUPLICATE_NICKNAME);
-			}
-			user.updateNickname(nickname);
-		}
 
 		if (password != null && !password.isBlank()) {
 			String encodedPassword = passwordEncoder.encode(password);
@@ -102,7 +87,7 @@ public class UserService {
 
 	@Transactional
 	public void deleteUser(Long userId) {
-		User user = userRepository.findById(userId)
+		User user = userRepository.findActiveById(userId)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
 
 		user.delete();

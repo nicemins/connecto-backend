@@ -2,6 +2,7 @@ package com.pm.connecto.auth.service;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.pm.connecto.auth.jwt.JwtTokenProvider;
 import com.pm.connecto.common.exception.ForbiddenException;
@@ -24,6 +25,15 @@ public class AuthService {
 		this.passwordEncoder = passwordEncoder;
 	}
 
+	/**
+	 * 사용자 인증 (로그인)
+	 * 
+	 * <p>트랜잭션: readOnly
+	 * - DB 조회만 수행 (User 조회)
+	 * - 데이터 수정 없음
+	 * - 읽기 전용 트랜잭션으로 성능 최적화
+	 */
+	@Transactional(readOnly = true)
 	public User authenticate(String email, String password) {
 		User user = userRepository.findByEmailForAuth(email)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
@@ -49,14 +59,37 @@ public class AuthService {
 		return user;
 	}
 
+	/**
+	 * Access Token 생성
+	 * 
+	 * <p>트랜잭션: 불필요
+	 * - DB 접근 없음
+	 * - JWT 토큰 생성만 수행
+	 */
 	public String generateAccessToken(Long userId) {
 		return jwtTokenProvider.generateAccessToken(userId);
 	}
 
+	/**
+	 * Refresh Token 생성
+	 * 
+	 * <p>트랜잭션: 불필요
+	 * - DB 접근 없음
+	 * - JWT 토큰 생성만 수행
+	 */
 	public String generateRefreshToken(Long userId) {
 		return jwtTokenProvider.generateRefreshToken(userId);
 	}
 
+	/**
+	 * Refresh Token으로 Access Token 재발급
+	 * 
+	 * <p>트랜잭션: readOnly
+	 * - DB 조회만 수행 (User 조회)
+	 * - 데이터 수정 없음
+	 * - 사용자 상태 검증 후 새 토큰 발급
+	 */
+	@Transactional(readOnly = true)
 	public String refreshAccessToken(String refreshToken) {
 		if (!jwtTokenProvider.validateToken(refreshToken)) {
 			throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
@@ -83,6 +116,13 @@ public class AuthService {
 		return jwtTokenProvider.generateAccessToken(userId);
 	}
 
+	/**
+	 * Refresh Token 만료 시간 조회
+	 * 
+	 * <p>트랜잭션: 불필요
+	 * - DB 접근 없음
+	 * - 설정값 반환만 수행
+	 */
 	public long getRefreshExpiration() {
 		return jwtTokenProvider.getRefreshExpiration();
 	}
