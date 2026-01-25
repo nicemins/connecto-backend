@@ -4,11 +4,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.pm.connecto.auth.jwt.JwtTokenProvider;
 import com.pm.connecto.common.exception.DuplicateResourceException;
-import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
-import com.pm.connecto.common.exception.UnauthorizedException;
 import com.pm.connecto.common.response.ErrorCode;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.repository.UserRepository;
@@ -17,12 +14,10 @@ import com.pm.connecto.user.repository.UserRepository;
 public class UserService {
 
 	private final UserRepository userRepository;
-	private final JwtTokenProvider jwtTokenProvider;
 	private final PasswordEncoder passwordEncoder;
 
-	public UserService(UserRepository userRepository, JwtTokenProvider jwtTokenProvider, PasswordEncoder passwordEncoder) {
+	public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
 		this.userRepository = userRepository;
-		this.jwtTokenProvider = jwtTokenProvider;
 		this.passwordEncoder = passwordEncoder;
 	}
 
@@ -35,31 +30,6 @@ public class UserService {
 		String encodedPassword = passwordEncoder.encode(password);
 		User user = new User(email, encodedPassword);
 		return userRepository.save(user);
-	}
-
-	public String login(String email, String password) {
-		User user = userRepository.findByEmailForAuth(email)
-			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
-
-		// 1. deletedAt 확인 (Soft Delete)
-		if (user.getDeletedAt() != null) {
-			throw new UnauthorizedException(ErrorCode.DELETED_USER);
-		}
-
-		// 2. status != ACTIVE 확인
-		if (!user.isActive()) {
-			if (user.isBlocked()) {
-				throw new ForbiddenException(ErrorCode.BLOCKED_USER);
-			}
-			throw new ForbiddenException(ErrorCode.INACTIVE_USER);
-		}
-
-		// 3. 비밀번호 확인
-		if (!passwordEncoder.matches(password, user.getPassword())) {
-			throw new UnauthorizedException(ErrorCode.INVALID_PASSWORD);
-		}
-
-		return jwtTokenProvider.generateAccessToken(user.getId());
 	}
 
 	@Transactional(readOnly = true)
