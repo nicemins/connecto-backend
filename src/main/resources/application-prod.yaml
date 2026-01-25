@@ -1,3 +1,13 @@
+# CORS 설정 (프로덕션 환경 - 환경변수로 주입)
+cors:
+  allowed-origins: ${FRONTEND_URL}
+
+# JWT 설정 (환경변수로 주입)
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration: ${JWT_ACCESS_EXPIRATION:3600000}      # 1시간 (기본값)
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}  # 7일 (기본값)
+
 spring:
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:connecto}
