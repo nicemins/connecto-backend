@@ -12,28 +12,23 @@ import com.pm.connecto.profile.dto.ProfileResponse;
 import com.pm.connecto.profile.service.ProfileService;
 import com.pm.connecto.user.dto.AvailabilityResponse;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.validation.annotation.Validated;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * 프로필 공개 API Controller
- * 
- * <p>본인 프로필 관련 API는 UserController의 /users/me/* 사용:
- * <ul>
- *   <li>GET /users/me - 내 전체 정보 조회 (프로필 포함)</li>
- *   <li>GET /users/me/profile - 내 프로필 조회</li>
- *   <li>POST /users/me/profile - 내 프로필 생성 (최초 1회)</li>
- *   <li>PATCH /users/me/profile - 내 프로필 수정</li>
- * </ul>
- * 
- * <p>이 Controller는 공개 API만 제공:
- * <ul>
- *   <li>GET /profiles/{profileId} - 타인 프로필 조회</li>
- *   <li>GET /profiles/exists?nickname= - 닉네임 중복 확인</li>
- * </ul>
+ * 프로필 API (공개)
+ * - 인증 없이 접근 가능
+ * - 공개 프로필 조회 및 닉네임 중복 확인
  */
+@Tag(name = "프로필", description = "공개 프로필 조회 및 닉네임 중복 확인 API")
+@SecurityRequirements  // 인증 불필요 명시 (Swagger UI에서 자물쇠 아이콘 제거)
 @RestController
 @RequestMapping("/profiles")
 @Validated
@@ -45,21 +40,26 @@ public class ProfileController {
 		this.profileService = profileService;
 	}
 
-	/**
-	 * 다른 사용자 프로필 조회 (공개 API)
-	 */
+	@Operation(summary = "프로필 조회", description = "프로필 ID로 사용자 프로필을 조회합니다.")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로필 없음")
+	})
 	@GetMapping("/{profileId}")
-	public ApiResponse<ProfileResponse> getProfile(@PathVariable Long profileId) {
+	public ApiResponse<ProfileResponse> getProfile(
+		@Parameter(description = "프로필 ID", example = "1")
+		@PathVariable Long profileId
+	) {
 		Profile profile = profileService.getProfileById(profileId);
 		return ApiResponse.success(ProfileResponse.from(profile));
 	}
 
-	/**
-	 * 닉네임 중복 확인 (공개 API)
-	 */
+	@Operation(summary = "닉네임 중복 확인", description = "닉네임 사용 가능 여부를 확인합니다.")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "확인 완료")
 	@GetMapping("/exists")
 	public ApiResponse<AvailabilityResponse> checkNicknameAvailable(
-		@RequestParam @NotBlank(message = "닉네임은 필수입니다.") @Size(min = 2, max = 30, message = "닉네임은 2자 이상 30자 이하여야 합니다.") String nickname
+		@Parameter(description = "확인할 닉네임", example = "홍길동")
+		@RequestParam @NotBlank(message = "닉네임은 필수입니다.") @Size(min = 2, max = 50, message = "닉네임은 2자 이상 50자 이하여야 합니다.") String nickname
 	) {
 		boolean available = profileService.isNicknameAvailable(nickname);
 		return ApiResponse.success(new AvailabilityResponse(available));

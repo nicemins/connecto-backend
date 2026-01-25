@@ -4,14 +4,28 @@ import java.time.LocalDateTime;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "공통 API 응답")
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ApiResponse<T> {
 
+	@Schema(description = "성공 여부", example = "true")
 	private boolean success;
+
+	@Schema(description = "에러 코드 (실패 시)", example = "USER_NOT_FOUND")
 	private String code;
+
+	@Schema(description = "응답 메시지", example = "요청이 성공적으로 처리되었습니다.")
 	private String message;
+
+	@Schema(description = "응답 데이터")
 	private T data;
+
+	@Schema(description = "Validation 에러 상세 목록 (실패 시)")
 	private Object errors;
+
+	@Schema(description = "응답 시간", example = "2024-01-23T10:30:00")
 	private LocalDateTime timestamp;
 
 	private ApiResponse(boolean success, String code, String message, T data, Object errors) {

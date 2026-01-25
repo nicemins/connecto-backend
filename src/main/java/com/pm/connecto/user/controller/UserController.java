@@ -27,23 +27,19 @@ import com.pm.connecto.user.dto.UserUpdateRequest;
 import com.pm.connecto.user.service.UserMeService;
 import com.pm.connecto.user.service.UserService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.validation.annotation.Validated;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
-/**
- * 사용자 API Controller
- * 
- * <p>모든 본인 관련 API는 /users/me 하위에 통합:
- * <ul>
- *   <li>/users/me - 사용자 기본 정보</li>
- *   <li>/users/me/profile - 프로필 정보</li>
- *   <li>/users/me/languages - 언어 정보 (LanguageController)</li>
- *   <li>/users/me/interests - 관심사 정보 (InterestController)</li>
- * </ul>
- */
+@Tag(name = "마이페이지", description = "로그인 사용자의 정보 및 프로필 관리 API")
 @RestController
 @RequestMapping("/users")
 @Validated
@@ -68,18 +64,23 @@ public class UserController {
 
 	// ========== /users/me - 사용자 기본 ==========
 
-	/**
-	 * 로그인 사용자 통합 정보 조회
-	 * - User + Profile + Languages + Interests 반환
-	 */
+	@Operation(summary = "내 정보 조회", description = "로그인한 사용자의 통합 정보(프로필, 언어, 관심사 포함)를 조회합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 필요")
+	})
 	@GetMapping("/me")
 	public ApiResponse<UserMeResponse> getMe() {
 		return ApiResponse.success(userMeService.getMyInfo(userContext.getUserId()));
 	}
 
-	/**
-	 * 사용자 정보 수정 (비밀번호)
-	 */
+	@Operation(summary = "내 정보 수정", description = "비밀번호를 수정합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 필요")
+	})
 	@PutMapping("/me")
 	public ApiResponse<UserResponse> updateMe(@Valid @RequestBody UserUpdateRequest updateRequest) {
 		User user = userService.updateUser(
@@ -89,9 +90,9 @@ public class UserController {
 		return ApiResponse.success(UserResponse.from(user));
 	}
 
-	/**
-	 * 회원 탈퇴 (Soft Delete)
-	 */
+	@Operation(summary = "회원 탈퇴", description = "계정을 삭제합니다. (Soft Delete)")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "탈퇴 성공")
 	@DeleteMapping("/me")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void deleteMe() {
@@ -100,20 +101,24 @@ public class UserController {
 
 	// ========== /users/me/profile - 프로필 ==========
 
-	/**
-	 * 내 프로필 조회
-	 */
+	@Operation(summary = "내 프로필 조회", description = "로그인한 사용자의 프로필을 조회합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로필 없음")
+	})
 	@GetMapping("/me/profile")
 	public ApiResponse<ProfileResponse> getMyProfile() {
 		Profile profile = profileService.getProfile(userContext.getUserId());
 		return ApiResponse.success(ProfileResponse.from(profile));
 	}
 
-	/**
-	 * 내 프로필 생성 (최초 1회)
-	 * - 이미 프로필이 있으면 409 Conflict
-	 * - nickname 필수
-	 */
+	@Operation(summary = "내 프로필 생성", description = "프로필을 생성합니다. (최초 1회만 가능)")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "프로필 이미 존재 또는 닉네임 중복")
+	})
 	@PostMapping("/me/profile")
 	@ResponseStatus(HttpStatus.CREATED)
 	public ApiResponse<ProfileResponse> createMyProfile(@Valid @RequestBody ProfileCreateRequest createRequest) {
@@ -126,11 +131,13 @@ public class UserController {
 		return ApiResponse.success(ProfileResponse.from(profile));
 	}
 
-	/**
-	 * 내 프로필 수정
-	 * - 프로필 없으면 404 Not Found
-	 * - nickname은 선택 (null이면 변경 안 함)
-	 */
+	@Operation(summary = "내 프로필 수정", description = "프로필 정보를 수정합니다. (부분 수정 가능)")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로필 없음"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "닉네임 중복")
+	})
 	@PatchMapping("/me/profile")
 	public ApiResponse<ProfileResponse> updateMyProfile(@Valid @RequestBody ProfileUpdateRequest updateRequest) {
 		Profile profile = profileService.updateProfile(
@@ -142,14 +149,14 @@ public class UserController {
 		return ApiResponse.success(ProfileResponse.from(profile));
 	}
 
-	// ========== /users/exists - 중복 확인 ==========
+	// ========== /users/exists - 중복 확인 (공개 API) ==========
 
-	/**
-	 * 이메일 중복 확인
-	 * - 닉네임 중복 확인은 GET /profiles/exists?nickname= 사용
-	 */
+	@Operation(summary = "이메일 중복 확인", description = "이메일 사용 가능 여부를 확인합니다.")
+	@SecurityRequirements  // 인증 불필요 명시
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "확인 완료")
 	@GetMapping("/exists/email")
 	public ApiResponse<AvailabilityResponse> checkEmailExists(
+		@Parameter(description = "확인할 이메일", example = "user@example.com")
 		@RequestParam @NotBlank(message = "이메일은 필수입니다.") @Email(message = "올바른 이메일 형식이 아닙니다.") String email
 	) {
 		boolean available = userService.isEmailAvailable(email);

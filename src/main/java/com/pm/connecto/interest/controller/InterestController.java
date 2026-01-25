@@ -20,8 +20,15 @@ import com.pm.connecto.interest.dto.InterestResponse;
 import com.pm.connecto.interest.dto.UserInterestRequest;
 import com.pm.connecto.interest.service.InterestService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
+@Tag(name = "관심사", description = "관심사 조회 및 사용자 관심사 관리 API")
 @RestController
 @RequestMapping
 public class InterestController {
@@ -34,8 +41,11 @@ public class InterestController {
 		this.userContext = userContext;
 	}
 
-	// ========== 전체 관심사 목록 (마스터 데이터) ==========
+	// ========== 전체 관심사 목록 (마스터 데이터, 공개 API) ==========
 
+	@Operation(summary = "전체 관심사 목록", description = "등록된 모든 관심사 태그를 조회합니다.")
+	@SecurityRequirements  // 인증 불필요 명시
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공")
 	@GetMapping("/interests")
 	public ApiResponse<List<InterestResponse>> getAllInterests() {
 		List<Interest> interests = interestService.getAllInterests();
@@ -48,6 +58,9 @@ public class InterestController {
 
 	// ========== 사용자 관심사 ==========
 
+	@Operation(summary = "내 관심사 추가", description = "관심사를 추가합니다. 존재하지 않는 태그는 자동 생성됩니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "추가 성공")
 	@PostMapping("/users/me/interests")
 	@ResponseStatus(HttpStatus.CREATED)
 	public ApiResponse<List<InterestResponse>> addUserInterests(@Valid @RequestBody UserInterestRequest userInterestRequest) {
@@ -63,6 +76,9 @@ public class InterestController {
 		);
 	}
 
+	@Operation(summary = "내 관심사 조회", description = "등록된 관심사 목록을 조회합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공")
 	@GetMapping("/users/me/interests")
 	public ApiResponse<List<InterestResponse>> getUserInterests() {
 		List<Interest> interests = interestService.getUserInterests(userContext.getUserId());
@@ -73,12 +89,9 @@ public class InterestController {
 		);
 	}
 
-	/**
-	 * 사용자 관심사 전체 교체
-	 * - 기존 관심사 관계 전부 삭제 후 새로 연결
-	 * - Interest 테이블에 없으면 자동 생성
-	 * - 트랜잭션으로 원자성 보장
-	 */
+	@Operation(summary = "내 관심사 전체 교체", description = "기존 관심사를 모두 삭제하고 새로운 목록으로 교체합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "교체 성공")
 	@PutMapping("/users/me/interests")
 	public ApiResponse<List<InterestResponse>> replaceUserInterests(@Valid @RequestBody UserInterestRequest userInterestRequest) {
 		List<Interest> interests = interestService.replaceUserInterests(
@@ -93,9 +106,18 @@ public class InterestController {
 		);
 	}
 
+	@Operation(summary = "내 관심사 삭제", description = "특정 관심사를 삭제합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "삭제 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "관심사 없음")
+	})
 	@DeleteMapping("/users/me/interests/{interestId}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void removeUserInterest(@PathVariable Long interestId) {
+	public void removeUserInterest(
+		@Parameter(description = "관심사 ID", example = "1")
+		@PathVariable Long interestId
+	) {
 		interestService.removeUserInterestById(userContext.getUserId(), interestId);
 	}
 }

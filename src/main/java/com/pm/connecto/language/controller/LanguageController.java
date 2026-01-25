@@ -23,8 +23,15 @@ import com.pm.connecto.language.dto.LanguageRequest;
 import com.pm.connecto.language.dto.LanguageResponse;
 import com.pm.connecto.language.service.LanguageService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
+@Tag(name = "언어", description = "사용자 언어 설정 API")
+@SecurityRequirement(name = "Bearer Authentication")
 @RestController
 @RequestMapping("/users/me/languages")
 public class LanguageController {
@@ -37,6 +44,11 @@ public class LanguageController {
 		this.userContext = userContext;
 	}
 
+	@Operation(summary = "언어 추가", description = "새로운 언어를 추가합니다.")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "추가 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 등록된 언어")
+	})
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	public ApiResponse<LanguageResponse> addLanguage(@Valid @RequestBody LanguageCreateRequest createRequest) {
@@ -49,8 +61,13 @@ public class LanguageController {
 		return ApiResponse.success(LanguageResponse.from(language));
 	}
 
+	@Operation(summary = "언어 목록 조회", description = "등록된 언어 목록을 조회합니다. 타입별 필터링 가능.")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공")
 	@GetMapping
-	public ApiResponse<List<LanguageResponse>> getLanguages(@RequestParam(required = false) LanguageType type) {
+	public ApiResponse<List<LanguageResponse>> getLanguages(
+		@Parameter(description = "언어 타입 필터 (NATIVE, LEARNING)")
+		@RequestParam(required = false) LanguageType type
+	) {
 		Long userId = userContext.getUserId();
 
 		List<Language> languages;
@@ -67,11 +84,8 @@ public class LanguageController {
 		);
 	}
 
-	/**
-	 * 사용자 언어 전체 교체
-	 * - 기존 언어 전부 삭제 후 새로 저장
-	 * - 트랜잭션으로 원자성 보장
-	 */
+	@Operation(summary = "언어 전체 교체", description = "기존 언어를 모두 삭제하고 새로운 목록으로 교체합니다.")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "교체 성공")
 	@PutMapping
 	public ApiResponse<List<LanguageResponse>> replaceLanguages(@Valid @RequestBody LanguageRequest languageRequest) {
 		List<Language> languages = languageService.replaceLanguages(
@@ -86,9 +100,17 @@ public class LanguageController {
 		);
 	}
 
+	@Operation(summary = "언어 삭제", description = "특정 언어를 삭제합니다.")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "삭제 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "언어 없음")
+	})
 	@DeleteMapping("/{id}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void deleteLanguage(@PathVariable Long id) {
+	public void deleteLanguage(
+		@Parameter(description = "언어 ID", example = "1")
+		@PathVariable Long id
+	) {
 		languageService.deleteLanguage(userContext.getUserId(), id);
 	}
 }
