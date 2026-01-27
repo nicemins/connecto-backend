@@ -1,0 +1,53 @@
+# 테스트 환경 설정
+# 테스트 실행 시 필요한 모든 환경 변수와 프로퍼티의 기본값을 설정합니다.
+
+# JWT 설정 (테스트용)
+jwt:
+  secret: test_secret_key_random_string_for_testing_purposes_123456789012345678901234567890
+  access-expiration: 3600000  # 1시간
+  refresh-expiration: 604800000  # 7일
+
+# CORS 설정 (테스트용)
+cors:
+  allowed-origins: http://localhost:3000
+
+# Spring 설정
+spring:
+  application:
+    name: connecto-test
+  
+  # 데이터베이스 설정 (H2 인메모리)
+  datasource:
+    url: jdbc:h2:mem:connecto_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  
+  # H2 콘솔 설정
+  h2:
+    console:
+      enabled: false  # 테스트에서는 콘솔 불필요
+      path: /h2-console
+  
+  # JPA 설정
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false  # 테스트에서는 SQL 로그 비활성화
+    properties:
+      hibernate:
+        format_sql: false
+        use_sql_comments: false
+  
+  # Redis 자동 구성 제외 (테스트에서는 Mock 사용)
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  
+  # Redis 설정 (테스트에서는 사용하지 않지만, @ConditionalOnProperty를 위해 설정)
+  # 실제로는 spring.data.redis.host를 설정하지 않아서 Redis 관련 서비스가 비활성화됩니다
+  # data:
+  #   redis:
+  #     host: localhost
+  #     port: 6379
