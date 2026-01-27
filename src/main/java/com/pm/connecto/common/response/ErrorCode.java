@@ -26,6 +26,7 @@ public enum ErrorCode {
 	RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "리소스를 찾을 수 없습니다."),
 	LANGUAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "LANGUAGE_NOT_FOUND", "존재하지 않는 언어입니다."),
 	INTEREST_NOT_FOUND(HttpStatus.NOT_FOUND, "INTEREST_NOT_FOUND", "존재하지 않는 관심사입니다."),
+	SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", "통화 세션을 찾을 수 없습니다."),
 
 	// 409 Conflict
 	DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "DUPLICATE_RESOURCE", "이미 존재하는 리소스입니다."),
@@ -34,9 +35,14 @@ public enum ErrorCode {
 	DUPLICATE_PROFILE(HttpStatus.CONFLICT, "DUPLICATE_PROFILE", "이미 프로필이 존재합니다."),
 	DUPLICATE_LANGUAGE(HttpStatus.CONFLICT, "DUPLICATE_LANGUAGE", "이미 등록된 언어입니다."),
 	DUPLICATE_INTEREST(HttpStatus.CONFLICT, "DUPLICATE_INTEREST", "이미 존재하는 관심사입니다."),
+	ALREADY_IN_QUEUE(HttpStatus.CONFLICT, "ALREADY_IN_QUEUE", "이미 매칭 대기열에 있습니다."),
+	ALREADY_IN_CALL(HttpStatus.CONFLICT, "ALREADY_IN_CALL", "이미 통화 중입니다."),
 
 	// 500 Internal Server Error
-	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "서버 오류가 발생했습니다.");
+	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "서버 오류가 발생했습니다."),
+	MATCHING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "MATCHING_FAILED", "매칭에 실패했습니다."),
+	REDIS_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "REDIS_ERROR", "Redis 연결 오류가 발생했습니다."),
+	LOCK_ACQUISITION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "LOCK_ACQUISITION_FAILED", "분산 락 획득에 실패했습니다.");
 
 	private final HttpStatus httpStatus;
 	private final String code;

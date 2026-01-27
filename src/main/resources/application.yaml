@@ -27,3 +27,13 @@ spring:
       hibernate:
         format_sql: true
         use_sql_comments: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0

@@ -3,6 +3,9 @@ package com.pm.connecto.common.exception;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -20,15 +23,33 @@ import jakarta.validation.ConstraintViolationException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
 	/**
 	 * 비즈니스 예외 처리
 	 */
 	@ExceptionHandler(BusinessException.class)
 	public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
 		ErrorCode errorCode = e.getErrorCode();
+		log.warn("Business exception: {} - {}", errorCode.getCode(), e.getMessage());
 		return ResponseEntity
 			.status(errorCode.getHttpStatus())
 			.body(ApiResponse.error(errorCode, e.getMessage()));
+	}
+
+	/**
+	 * Redis 및 데이터 접근 예외 처리
+	 * DataAccessException은 Spring의 모든 데이터 접근 예외(Redis 포함)의 상위 클래스입니다.
+	 */
+	@ExceptionHandler(DataAccessException.class)
+	@ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+	public ApiResponse<Void> handleDataAccessException(DataAccessException e) {
+		log.error("Data access failure (Redis or database)", e);
+		// Redis 관련 예외인지 확인하여 적절한 에러 메시지 반환
+		String message = e.getMessage() != null && e.getMessage().toLowerCase().contains("redis")
+			? "매칭 서비스에 일시적인 문제가 발생했습니다."
+			: "데이터 접근 중 오류가 발생했습니다.";
+		return ApiResponse.error(ErrorCode.REDIS_ERROR, message);
 	}
 
 	/**

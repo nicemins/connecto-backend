@@ -23,11 +23,12 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * 프로필 API (공개)
+ * 프로필 API (닉네임 중복 확인)
  * - 인증 없이 접근 가능
- * - 공개 프로필 조회 및 닉네임 중복 확인
+ * - 닉네임 중복 확인만 제공
+ * - 프로필 조회는 통화 종료 후 Match 도메인을 통해 제공됨
  */
-@Tag(name = "프로필", description = "공개 프로필 조회 및 닉네임 중복 확인 API")
+@Tag(name = "프로필", description = "닉네임 중복 확인 API")
 @SecurityRequirements  // 인증 불필요 명시 (Swagger UI에서 자물쇠 아이콘 제거)
 @RestController
 @RequestMapping("/profiles")
@@ -38,20 +39,6 @@ public class ProfileController {
 
 	public ProfileController(ProfileService profileService) {
 		this.profileService = profileService;
-	}
-
-	@Operation(summary = "프로필 조회", description = "프로필 ID로 사용자 프로필을 조회합니다.")
-	@ApiResponses({
-		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
-		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로필 없음")
-	})
-	@GetMapping("/{profileId}")
-	public ApiResponse<ProfileResponse> getProfile(
-		@Parameter(description = "프로필 ID", example = "1")
-		@PathVariable Long profileId
-	) {
-		Profile profile = profileService.getProfileById(profileId);
-		return ApiResponse.success(ProfileResponse.from(profile));
 	}
 
 	@Operation(summary = "닉네임 중복 확인", description = "닉네임 사용 가능 여부를 확인합니다.")

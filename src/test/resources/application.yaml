@@ -1,0 +1,8 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+# 테스트에서는 Redis를 사용하지 않으므로 비활성화
+# spring.data.redis.host를 설정하지 않아 RedissonConfig와 MatchQueueService 등이 비활성화됩니다
