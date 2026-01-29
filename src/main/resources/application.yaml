@@ -2,6 +2,11 @@
 cors:
   allowed-origins: http://localhost:3000
 
+# Socket.io 설정
+socketio:
+  host: 0.0.0.0
+  port: 9092
+
 jwt:
   secret: your-secret-key-minimum-256-bits-for-hs256-algorithm-please-change-this-in-production
   access-expiration: 3600000
