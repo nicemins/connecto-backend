@@ -1,6 +1,7 @@
 package com.pm.connecto.user.controller;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -9,8 +10,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.pm.connecto.common.context.UserContext;
 import com.pm.connecto.common.response.ApiResponse;
@@ -146,6 +149,21 @@ public class UserController {
 			updateRequest.profileImageUrl(),
 			updateRequest.bio()
 		);
+		return ApiResponse.success(ProfileResponse.from(profile));
+	}
+
+	@Operation(summary = "프로필 이미지 수정", description = "프로필 이미지를 변경합니다. (multipart/form-data, 최대 5MB, JPEG/PNG/WEBP)")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "지원하지 않는 파일 형식 또는 크기 초과"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로필 없음")
+	})
+	@PatchMapping(value = "/me/profile/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ApiResponse<ProfileResponse> updateProfileImage(
+		@RequestPart("image") MultipartFile image
+	) {
+		Profile profile = profileService.updateProfileImage(userContext.getUserId(), image);
 		return ApiResponse.success(ProfileResponse.from(profile));
 	}
 

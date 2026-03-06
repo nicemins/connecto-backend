@@ -28,6 +28,9 @@ public enum ErrorCode {
 	INTEREST_NOT_FOUND(HttpStatus.NOT_FOUND, "INTEREST_NOT_FOUND", "존재하지 않는 관심사입니다."),
 	SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", "통화 세션을 찾을 수 없습니다."),
 
+	// 404 Not Found (Friend)
+	FRIEND_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "FRIEND_REQUEST_NOT_FOUND", "친구 요청을 찾을 수 없습니다."),
+
 	// 409 Conflict
 	DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "DUPLICATE_RESOURCE", "이미 존재하는 리소스입니다."),
 	DUPLICATE_EMAIL(HttpStatus.CONFLICT, "DUPLICATE_EMAIL", "이미 존재하는 이메일입니다."),
@@ -35,8 +38,19 @@ public enum ErrorCode {
 	DUPLICATE_PROFILE(HttpStatus.CONFLICT, "DUPLICATE_PROFILE", "이미 프로필이 존재합니다."),
 	DUPLICATE_LANGUAGE(HttpStatus.CONFLICT, "DUPLICATE_LANGUAGE", "이미 등록된 언어입니다."),
 	DUPLICATE_INTEREST(HttpStatus.CONFLICT, "DUPLICATE_INTEREST", "이미 존재하는 관심사입니다."),
+	DUPLICATE_FRIEND_REQUEST(HttpStatus.CONFLICT, "DUPLICATE_FRIEND_REQUEST", "이미 친구 요청을 보냈거나 이미 친구입니다."),
+	ALREADY_FRIENDS(HttpStatus.CONFLICT, "ALREADY_FRIENDS", "이미 친구인 사용자입니다."),
 	ALREADY_IN_QUEUE(HttpStatus.CONFLICT, "ALREADY_IN_QUEUE", "이미 매칭 대기열에 있습니다."),
 	ALREADY_IN_CALL(HttpStatus.CONFLICT, "ALREADY_IN_CALL", "이미 통화 중입니다."),
+	DUPLICATE_REPORT(HttpStatus.CONFLICT, "DUPLICATE_REPORT", "이미 신고한 사용자입니다."),
+
+	// 400 Bad Request (Report)
+	SELF_REPORT(HttpStatus.BAD_REQUEST, "SELF_REPORT", "자기 자신을 신고할 수 없습니다."),
+
+	// 400 Bad Request (File)
+	INVALID_FILE_TYPE(HttpStatus.BAD_REQUEST, "INVALID_FILE_TYPE", "지원하지 않는 파일 형식입니다. (JPEG, PNG, WEBP만 허용)"),
+	FILE_SIZE_EXCEEDED(HttpStatus.BAD_REQUEST, "FILE_SIZE_EXCEEDED", "파일 크기가 5MB를 초과합니다."),
+	FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "FILE_UPLOAD_FAILED", "파일 업로드에 실패했습니다."),
 
 	// 500 Internal Server Error
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "서버 오류가 발생했습니다."),

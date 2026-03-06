@@ -12,6 +12,15 @@ jwt:
   access-expiration: 3600000
   refresh-expiration: 604800000
 
+cloud:
+  aws:
+    s3:
+      bucket: ${AWS_S3_BUCKET:connecto-dev}
+      region: ${AWS_REGION:ap-northeast-2}
+    credentials:
+      access-key: ${AWS_ACCESS_KEY_ID:}
+      secret-key: ${AWS_SECRET_ACCESS_KEY:}
+
 spring:
   application:
     name: connecto
@@ -32,6 +41,10 @@ spring:
       hibernate:
         format_sql: true
         use_sql_comments: true
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
   data:
     redis:
       host: localhost

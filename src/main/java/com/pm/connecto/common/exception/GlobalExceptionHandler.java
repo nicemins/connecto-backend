@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import com.pm.connecto.common.response.ApiResponse;
 import com.pm.connecto.common.response.ErrorCode;
@@ -128,6 +129,15 @@ public class GlobalExceptionHandler {
 	public ApiResponse<Void> handleMissingServletRequestParameterException(MissingServletRequestParameterException e) {
 		String message = String.format("필수 파라미터 '%s'이(가) 누락되었습니다.", e.getParameterName());
 		return ApiResponse.error(ErrorCode.INVALID_INPUT, message);
+	}
+
+	/**
+	 * 파일 크기 초과 (5MB)
+	 */
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	@ResponseStatus(HttpStatus.BAD_REQUEST)
+	public ApiResponse<Void> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+		return ApiResponse.error(ErrorCode.FILE_SIZE_EXCEEDED, ErrorCode.FILE_SIZE_EXCEEDED.getMessage());
 	}
 
 	/**
