@@ -44,10 +44,20 @@ spring:
     exclude:
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
-  
+
   # Redis 설정 (테스트에서는 사용하지 않지만, @ConditionalOnProperty를 위해 설정)
   # 실제로는 spring.data.redis.host를 설정하지 않아서 Redis 관련 서비스가 비활성화됩니다
   # data:
   #   redis:
   #     host: localhost
   #     port: 6379
+
+# AWS S3 설정 (테스트용 더미 값 - 실제 S3 호출 없음)
+cloud:
+  aws:
+    s3:
+      bucket: test-bucket
+      region: ap-northeast-2
+    credentials:
+      access-key: test-access-key
+      secret-key: test-secret-key

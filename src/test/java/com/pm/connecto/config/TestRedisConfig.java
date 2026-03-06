@@ -9,11 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.RedisTemplate;
 
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.redis.core.RedisTemplate;
-
+import com.pm.connecto.common.service.S3Service;
 import com.pm.connecto.match.service.MatchQueueService;
 import com.pm.connecto.match.service.MatchService;
 
@@ -69,5 +65,12 @@ public class TestRedisConfig {
 	public MatchService matchService() {
 		// MatchService를 Mock으로 제공하여 테스트 환경에서 안전하게 동작
 		return mock(MatchService.class);
+	}
+
+	@Bean
+	@Primary
+	public S3Service s3Service() {
+		// S3Service를 Mock으로 제공하여 실제 AWS S3 호출 방지
+		return mock(S3Service.class);
 	}
 }
