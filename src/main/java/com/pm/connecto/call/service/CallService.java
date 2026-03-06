@@ -1,15 +1,22 @@
 package com.pm.connecto.call.service;
 
+import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.pm.connecto.call.dto.FriendCallResponse;
+import com.pm.connecto.common.exception.DuplicateResourceException;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.response.ErrorCode;
+import com.pm.connecto.friend.repository.FriendshipRepository;
 import com.pm.connecto.match.domain.CallSession;
 import com.pm.connecto.match.repository.CallSessionRepository;
+import com.pm.connecto.user.domain.User;
+import com.pm.connecto.user.repository.UserRepository;
 
 /**
  * 통화 서비스 (프로덕션 수준)
@@ -23,9 +30,17 @@ public class CallService {
 	private static final Logger log = LoggerFactory.getLogger(CallService.class);
 
 	private final CallSessionRepository callSessionRepository;
+	private final UserRepository userRepository;
+	private final FriendshipRepository friendshipRepository;
 
-	public CallService(CallSessionRepository callSessionRepository) {
+	public CallService(
+		CallSessionRepository callSessionRepository,
+		UserRepository userRepository,
+		FriendshipRepository friendshipRepository
+	) {
 		this.callSessionRepository = callSessionRepository;
+		this.userRepository = userRepository;
+		this.friendshipRepository = friendshipRepository;
 	}
 
 	/**
@@ -104,5 +119,36 @@ public class CallService {
 			// TODO: 재연결 로직 구현 (친구 맺기 또는 다시 통화)
 			// - 친구 관계 생성 또는 재매칭 트리거
 		}
+	}
+
+	/**
+	 * 친구에게 통화 요청
+	 * - 친구 관계가 있어야만 요청 가능
+	 * - CallSession을 즉시 IN_PROGRESS로 생성 (webrtcChannelId 발급)
+	 * - TODO: Socket.IO로 친구에게 call:incoming 이벤트 전송
+	 */
+	@Transactional
+	public FriendCallResponse requestCallToFriend(Long callerId, Long friendId) {
+		if (!friendshipRepository.existsBetween(callerId, friendId)) {
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+		}
+
+		User caller = userRepository.findActiveById(callerId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
+		User friend = userRepository.findActiveById(friendId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
+
+		callSessionRepository.findInProgressByUserId(callerId).ifPresent(s -> {
+			throw new DuplicateResourceException(ErrorCode.ALREADY_IN_CALL);
+		});
+
+		String webrtcChannelId = UUID.randomUUID().toString();
+		CallSession session = new CallSession(caller, friend);
+		session.start(webrtcChannelId);
+		callSessionRepository.save(session);
+
+		log.info("Friend call requested: {} → {} (sessionId: {})", callerId, friendId, session.getId());
+
+		return new FriendCallResponse(session.getId(), webrtcChannelId, friendId);
 	}
 }
