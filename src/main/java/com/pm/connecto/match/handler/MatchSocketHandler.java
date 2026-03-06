@@ -1,6 +1,7 @@
 package com.pm.connecto.match.handler;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
@@ -48,6 +49,9 @@ public class MatchSocketHandler {
 
 	// 클라이언트별 사용자 ID 매핑
 	private final Map<String, Long> clientUserIdMap = new ConcurrentHashMap<>();
+
+	// 채널별 소켓 클라이언트 추적 (WebRTC 시그널 릴레이용)
+	private final Map<String, Set<SocketIOClient>> channelRoomMap = new ConcurrentHashMap<>();
 
 	public MatchSocketHandler(
 		SocketIOServer socketIOServer,
@@ -154,6 +158,9 @@ public class MatchSocketHandler {
 				log.error("Error removing user {} from queue on disconnect", userId, e);
 			}
 		}
+		// channelRoomMap에서 해당 클라이언트 제거
+		channelRoomMap.values().forEach(clients -> clients.remove(client));
+		channelRoomMap.entrySet().removeIf(entry -> entry.getValue().isEmpty());
 		log.info("Client {} disconnected", client.getSessionId());
 	}
 
@@ -181,10 +188,11 @@ public class MatchSocketHandler {
 			var response = matchService.startMatching(userId);
 
 			if (response.matched()) {
-				// 즉시 매칭 성공
+				// 즉시 매칭 성공 — 현재 클라이언트가 Offerer
 				client.sendEvent("match:success", Map.of(
 					"sessionId", response.sessionId(),
-					"webrtcChannelId", response.webrtcChannelId()
+					"webrtcChannelId", response.webrtcChannelId(),
+					"isOfferer", true
 				));
 				log.info("User {} matched immediately via socket", userId);
 			} else {
@@ -245,13 +253,14 @@ public class MatchSocketHandler {
 						String webrtcChannelId = "channel_" + java.util.UUID.randomUUID().toString().replace("-", "");
 						CallSession session = matchService.createMatchedSession(user1, user2, webrtcChannelId);
 
-						// 두 클라이언트 모두에게 알림
+						// 현재 클라이언트(user1) → Offerer
 						client.sendEvent("match:success", Map.of(
 							"sessionId", session.getId(),
-							"webrtcChannelId", session.getWebrtcChannelId()
+							"webrtcChannelId", session.getWebrtcChannelId(),
+							"isOfferer", true
 						));
 
-						// 상대방 클라이언트 찾기
+						// 상대 클라이언트(user2) → Answerer
 						clientUserIdMap.entrySet().stream()
 							.filter(entry -> entry.getValue().equals(matchedUserId))
 							.findFirst()
@@ -262,7 +271,8 @@ public class MatchSocketHandler {
 									if (matchedClient != null && matchedClient.isChannelOpen()) {
 										matchedClient.sendEvent("match:success", Map.of(
 											"sessionId", session.getId(),
-											"webrtcChannelId", session.getWebrtcChannelId()
+											"webrtcChannelId", session.getWebrtcChannelId(),
+											"isOfferer", false
 										));
 										log.info("Notified matched user {} via socket", matchedUserId);
 									}
@@ -290,6 +300,65 @@ public class MatchSocketHandler {
 		});
 		matchingThread.setDaemon(true);
 		matchingThread.start();
+	}
+
+	/**
+	 * WebRTC 채널 입장
+	 */
+	@OnEvent("webrtc:join")
+	public void onWebrtcJoin(SocketIOClient client, Map<String, Object> data) {
+		Long userId = getUserId(client);
+		if (userId == null) return;
+
+		String channelId = (String) data.get("channelId");
+		if (channelId == null) return;
+
+		channelRoomMap.computeIfAbsent(channelId, k -> ConcurrentHashMap.newKeySet()).add(client);
+		log.info("User {} joined WebRTC channel {}", userId, channelId);
+	}
+
+	/**
+	 * WebRTC Offer SDP 릴레이
+	 */
+	@OnEvent("webrtc:offer")
+	public void onWebrtcOffer(SocketIOClient client, Map<String, Object> data) {
+		relayToPeer(client, "webrtc:offer", data);
+	}
+
+	/**
+	 * WebRTC Answer SDP 릴레이
+	 */
+	@OnEvent("webrtc:answer")
+	public void onWebrtcAnswer(SocketIOClient client, Map<String, Object> data) {
+		relayToPeer(client, "webrtc:answer", data);
+	}
+
+	/**
+	 * WebRTC ICE Candidate 릴레이
+	 */
+	@OnEvent("webrtc:ice")
+	public void onWebrtcIce(SocketIOClient client, Map<String, Object> data) {
+		relayToPeer(client, "webrtc:ice", data);
+	}
+
+	/**
+	 * 같은 채널의 상대방에게 이벤트 릴레이
+	 */
+	private void relayToPeer(SocketIOClient client, String eventName, Map<String, Object> data) {
+		Long userId = getUserId(client);
+		if (userId == null) return;
+
+		String channelId = (String) data.get("channelId");
+		if (channelId == null) return;
+
+		Set<SocketIOClient> peers = channelRoomMap.get(channelId);
+		if (peers == null) return;
+
+		peers.stream()
+			.filter(peer -> !peer.getSessionId().equals(client.getSessionId()))
+			.filter(SocketIOClient::isChannelOpen)
+			.findFirst()
+			.ifPresent(peer -> peer.sendEvent(eventName, data));
 	}
 
 	/**
