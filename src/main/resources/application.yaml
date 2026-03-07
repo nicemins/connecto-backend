@@ -55,3 +55,7 @@ spring:
           max-active: 8
           max-idle: 8
           min-idle: 0
+
+google:
+  android-client-id: ${GOOGLE_ANDROID_CLIENT_ID:}
+  web-client-id: ${GOOGLE_WEB_CLIENT_ID:}

@@ -1,15 +1,25 @@
 package com.pm.connecto.auth.service;
 
+import java.util.List;
+import java.util.stream.Stream;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.gson.GsonFactory;
 import com.pm.connecto.auth.jwt.JwtTokenProvider;
+import com.pm.connecto.common.exception.BusinessException;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.exception.UnauthorizedException;
 import com.pm.connecto.common.response.ErrorCode;
 import com.pm.connecto.user.domain.User;
+import com.pm.connecto.user.dto.SocialLoginRequest;
 import com.pm.connecto.user.repository.UserRepository;
 
 @Service
@@ -18,6 +28,12 @@ public class AuthService {
 	private final UserRepository userRepository;
 	private final JwtTokenProvider jwtTokenProvider;
 	private final PasswordEncoder passwordEncoder;
+
+	@Value("${google.android-client-id:}")
+	private String googleAndroidClientId;
+
+	@Value("${google.web-client-id:}")
+	private String googleWebClientId;
 
 	public AuthService(UserRepository userRepository, JwtTokenProvider jwtTokenProvider, PasswordEncoder passwordEncoder) {
 		this.userRepository = userRepository;
@@ -125,5 +141,45 @@ public class AuthService {
 	 */
 	public long getRefreshExpiration() {
 		return jwtTokenProvider.getRefreshExpiration();
+	}
+
+	/**
+	 * 소셜 로그인 — 이메일 추출 후 유저 조회 또는 자동 생성
+	 */
+	@Transactional
+	public User socialLogin(SocialLoginRequest req) {
+		String email = switch (req.provider()) {
+			case "google" -> verifyGoogleToken(req.token());
+			default -> throw new BusinessException(ErrorCode.INVALID_PROVIDER);
+		};
+
+		return userRepository.findByEmailForAuth(email)
+			.filter(u -> !u.isDeleted())
+			.orElseGet(() -> userRepository.save(
+				User.createSocialUser(email, req.provider(), null)));
+	}
+
+	private String verifyGoogleToken(String idTokenString) {
+		try {
+			List<String> audiences = Stream.of(googleAndroidClientId, googleWebClientId)
+				.filter(id -> id != null && !id.isBlank())
+				.toList();
+
+			GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
+				new NetHttpTransport(), GsonFactory.getDefaultInstance())
+				.setAudience(audiences)
+				.build();
+
+			GoogleIdToken idToken = verifier.verify(idTokenString);
+			if (idToken == null) {
+				throw new UnauthorizedException(ErrorCode.INVALID_SOCIAL_TOKEN);
+			}
+
+			return idToken.getPayload().getEmail();
+		} catch (UnauthorizedException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new UnauthorizedException(ErrorCode.INVALID_SOCIAL_TOKEN);
+		}
 	}
 }

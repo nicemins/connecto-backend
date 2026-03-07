@@ -16,6 +16,7 @@ import com.pm.connecto.common.response.ApiResponse;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.dto.LoginRequest;
 import com.pm.connecto.user.dto.LoginResponse;
+import com.pm.connecto.user.dto.SocialLoginRequest;
 import com.pm.connecto.user.dto.UserCreateRequest;
 import com.pm.connecto.user.dto.UserResponse;
 import com.pm.connecto.user.service.UserService;
@@ -65,6 +66,34 @@ public class AuthController {
 	@PostMapping("/login")
 	public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
 		User user = authService.authenticate(request.email(), request.password());
+
+		String accessToken = authService.generateAccessToken(user.getId());
+		String refreshToken = authService.generateRefreshToken(user.getId());
+
+		ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", refreshToken)
+			.httpOnly(true)
+			.secure(true)
+			.path("/")
+			.maxAge(authService.getRefreshExpiration() / 1000)
+			.sameSite("Strict")
+			.build();
+
+		return ResponseEntity.ok()
+			.header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+			.body(ApiResponse.success(new LoginResponse(accessToken)));
+	}
+
+	@Operation(summary = "소셜 로그인", description = "소셜 ID 토큰으로 로그인합니다. 최초 로그인 시 계정이 자동 생성됩니다.")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "소셜 로그인 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "지원하지 않는 provider"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 소셜 토큰")
+	})
+	@PostMapping("/social-login")
+	public ResponseEntity<ApiResponse<LoginResponse>> socialLogin(
+		@Valid @RequestBody SocialLoginRequest request
+	) {
+		User user = authService.socialLogin(request);
 
 		String accessToken = authService.generateAccessToken(user.getId());
 		String refreshToken = authService.generateRefreshToken(user.getId());

@@ -47,6 +47,10 @@ public enum ErrorCode {
 	// 400 Bad Request (Report)
 	SELF_REPORT(HttpStatus.BAD_REQUEST, "SELF_REPORT", "자기 자신을 신고할 수 없습니다."),
 
+	// 400 Bad Request (Social Login)
+	INVALID_PROVIDER(HttpStatus.BAD_REQUEST, "INVALID_PROVIDER", "지원하지 않는 소셜 로그인 제공자입니다."),
+	INVALID_SOCIAL_TOKEN(HttpStatus.UNAUTHORIZED, "INVALID_SOCIAL_TOKEN", "유효하지 않은 소셜 토큰입니다."),
+
 	// 400 Bad Request (File)
 	INVALID_FILE_TYPE(HttpStatus.BAD_REQUEST, "INVALID_FILE_TYPE", "지원하지 않는 파일 형식입니다. (JPEG, PNG, WEBP만 허용)"),
 	FILE_SIZE_EXCEEDED(HttpStatus.BAD_REQUEST, "FILE_SIZE_EXCEEDED", "파일 크기가 5MB를 초과합니다."),

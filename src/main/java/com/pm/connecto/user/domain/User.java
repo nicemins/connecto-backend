@@ -33,8 +33,14 @@ public class User {
 	@Column(nullable = false, unique = true, length = 100)
 	private String email;
 
-	@Column(nullable = false)
+	@Column(nullable = true)
 	private String password;
+
+	@Column(nullable = false, length = 20)
+	private String provider;
+
+	@Column(length = 255)
+	private String providerId;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
@@ -55,6 +61,9 @@ public class User {
 		if (status == null) {
 			status = UserStatus.ACTIVE;
 		}
+		if (provider == null) {
+			provider = "local";
+		}
 	}
 
 	@PreUpdate
@@ -65,7 +74,17 @@ public class User {
 	public User(String email, String password) {
 		this.email = email;
 		this.password = password;
+		this.provider = "local";
 		this.status = UserStatus.ACTIVE;
+	}
+
+	public static User createSocialUser(String email, String provider, String providerId) {
+		User user = new User();
+		user.email = email;
+		user.provider = provider;
+		user.providerId = providerId;
+		user.status = UserStatus.ACTIVE;
+		return user;
 	}
 
 	public void updatePassword(String encodedPassword) {

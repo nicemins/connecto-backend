@@ -347,7 +347,7 @@ docker-compose up -d   # Redis 실행
 
 ## 11. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-07
+> **마지막 업데이트:** 2026-03-07 (소셜 로그인 구현 완료)
 
 ### 백엔드 완료 ✅
 
@@ -359,6 +359,7 @@ docker-compose up -d   # Redis 실행
 | 언어 | `POST/GET/PUT/DELETE /users/me/languages` | |
 | 관심사 | `POST/GET/DELETE /users/me/interests` | **2026-03-06 구현 완료** — `GET /users/me` 응답에 포함 |
 | 매칭 | `POST /match/start,cancel`, `GET /match/status,result/{id}` | Redis 필요 (@ConditionalOnProperty) |
+| 인증 (소셜) | `POST /auth/social-login` | **2026-03-07 Google OAuth ID Token 검증 구현** — User 자동 생성 포함 |
 | 통화 | `POST /call/end`, `POST /call/again`, `POST /call/request/{friendId}` | **2026-03-06 친구 통화 요청 추가** |
 | 신고 | `POST /reports` | **2026-03-06 구현 완료** — 자기 신고/중복 신고 방지 |
 | 친구 | `GET /friends`, `GET /friends/requests`, `POST /friends/request`, `PATCH /friends/request/{id}/accept`, `PATCH /friends/request/{id}/reject` | **2026-03-06 구현 완료** |
