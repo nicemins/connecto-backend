@@ -23,7 +23,7 @@ spring:
       enabled: false
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate:
@@ -40,3 +40,27 @@ spring:
           max-active: 16
           max-idle: 8
           min-idle: 2
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+
+socketio:
+  host: 0.0.0.0
+  port: 9092
+
+cloud:
+  aws:
+    s3:
+      bucket: ${AWS_S3_BUCKET}
+      region: ${AWS_REGION:ap-northeast-2}
+    credentials:
+      access-key: ${AWS_ACCESS_KEY_ID}
+      secret-key: ${AWS_SECRET_ACCESS_KEY}
+
+google:
+  android-client-id: ${GOOGLE_ANDROID_CLIENT_ID:}
+  web-client-id: ${GOOGLE_WEB_CLIENT_ID:}
+
+firebase:
+  service-account-json: ${FIREBASE_SERVICE_ACCOUNT_JSON:}
