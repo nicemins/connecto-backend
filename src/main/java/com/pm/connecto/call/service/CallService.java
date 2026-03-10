@@ -15,6 +15,9 @@ import com.pm.connecto.common.response.ErrorCode;
 import com.pm.connecto.friend.repository.FriendshipRepository;
 import com.pm.connecto.match.domain.CallSession;
 import com.pm.connecto.match.repository.CallSessionRepository;
+import com.pm.connecto.notification.service.FcmService;
+import com.pm.connecto.profile.domain.Profile;
+import com.pm.connecto.profile.repository.ProfileRepository;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.repository.UserRepository;
 
@@ -32,15 +35,21 @@ public class CallService {
 	private final CallSessionRepository callSessionRepository;
 	private final UserRepository userRepository;
 	private final FriendshipRepository friendshipRepository;
+	private final ProfileRepository profileRepository;
+	private final FcmService fcmService;
 
 	public CallService(
 		CallSessionRepository callSessionRepository,
 		UserRepository userRepository,
-		FriendshipRepository friendshipRepository
+		FriendshipRepository friendshipRepository,
+		ProfileRepository profileRepository,
+		FcmService fcmService
 	) {
 		this.callSessionRepository = callSessionRepository;
 		this.userRepository = userRepository;
 		this.friendshipRepository = friendshipRepository;
+		this.profileRepository = profileRepository;
+		this.fcmService = fcmService;
 	}
 
 	/**
@@ -148,6 +157,10 @@ public class CallService {
 		callSessionRepository.save(session);
 
 		log.info("Friend call requested: {} → {} (sessionId: {})", callerId, friendId, session.getId());
+
+		Profile callerProfile = profileRepository.findByUserId(callerId).orElse(null);
+		String callerNickname = callerProfile != null ? callerProfile.getNickname() : "누군가";
+		fcmService.sendToUserAsync(friendId, "통화 요청", callerNickname + "님이 통화를 요청했어요");
 
 		return new FriendCallResponse(session.getId(), webrtcChannelId, friendId);
 	}
