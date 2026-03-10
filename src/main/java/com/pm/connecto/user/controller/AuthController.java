@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.pm.connecto.auth.service.AuthService;
+import com.pm.connecto.common.context.UserContext;
 import com.pm.connecto.common.response.ApiResponse;
+import com.pm.connecto.notification.service.FcmService;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.dto.LoginRequest;
 import com.pm.connecto.user.dto.LoginResponse;
@@ -39,10 +41,14 @@ public class AuthController {
 
 	private final AuthService authService;
 	private final UserService userService;
+	private final FcmService fcmService;
+	private final UserContext userContext;
 
-	public AuthController(AuthService authService, UserService userService) {
+	public AuthController(AuthService authService, UserService userService, FcmService fcmService, UserContext userContext) {
 		this.authService = authService;
 		this.userService = userService;
+		this.fcmService = fcmService;
+		this.userContext = userContext;
 	}
 
 	@Operation(summary = "회원가입", description = "이메일과 비밀번호로 새 계정을 생성합니다.")
@@ -127,6 +133,8 @@ public class AuthController {
 	@PostMapping("/logout")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public ResponseEntity<Void> logout() {
+		fcmService.deleteAllTokens(userContext.getUserId());
+
 		ResponseCookie deleteCookie = ResponseCookie.from("refreshToken", "")
 			.httpOnly(true)
 			.secure(true)
