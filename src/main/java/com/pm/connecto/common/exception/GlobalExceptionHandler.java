@@ -155,6 +155,7 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(RuntimeException.class)
 	@ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
 	public ApiResponse<Void> handleRuntimeException(RuntimeException e) {
+		log.error("Unhandled runtime exception: {}", e.getMessage(), e);
 		// 프로덕션에서는 상세 메시지 노출 금지
 		return ApiResponse.error(ErrorCode.INTERNAL_ERROR, "서버 오류가 발생했습니다.");
 	}
