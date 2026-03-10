@@ -18,6 +18,7 @@ import com.pm.connecto.friend.dto.FriendRequestResponse;
 import com.pm.connecto.friend.dto.FriendResponse;
 import com.pm.connecto.friend.repository.FriendRequestRepository;
 import com.pm.connecto.friend.repository.FriendshipRepository;
+import com.pm.connecto.notification.service.FcmService;
 import com.pm.connecto.profile.domain.Profile;
 import com.pm.connecto.profile.repository.ProfileRepository;
 import com.pm.connecto.user.domain.User;
@@ -32,17 +33,20 @@ public class FriendService {
 	private final FriendshipRepository friendshipRepository;
 	private final UserRepository userRepository;
 	private final ProfileRepository profileRepository;
+	private final FcmService fcmService;
 
 	public FriendService(
 		FriendRequestRepository friendRequestRepository,
 		FriendshipRepository friendshipRepository,
 		UserRepository userRepository,
-		ProfileRepository profileRepository
+		ProfileRepository profileRepository,
+		FcmService fcmService
 	) {
 		this.friendRequestRepository = friendRequestRepository;
 		this.friendshipRepository = friendshipRepository;
 		this.userRepository = userRepository;
 		this.profileRepository = profileRepository;
+		this.fcmService = fcmService;
 	}
 
 	/**
@@ -73,6 +77,10 @@ public class FriendService {
 
 		Profile senderProfile = profileRepository.findByUserId(senderId).orElse(null);
 		Profile receiverProfile = profileRepository.findByUserId(receiverId).orElse(null);
+
+		String senderNickname = senderProfile != null ? senderProfile.getNickname() : "누군가";
+		fcmService.sendToUserAsync(receiverId, "친구 요청", senderNickname + "님이 친구 요청을 보냈어요");
+
 		return FriendRequestResponse.from(request, senderProfile, receiverProfile);
 	}
 
@@ -104,6 +112,10 @@ public class FriendService {
 
 		Profile senderProfile = profileRepository.findByUserId(request.getSender().getId()).orElse(null);
 		Profile receiverProfile = profileRepository.findByUserId(receiverId).orElse(null);
+
+		String receiverNickname = receiverProfile != null ? receiverProfile.getNickname() : "누군가";
+		fcmService.sendToUserAsync(request.getSender().getId(), "친구 수락", receiverNickname + "님이 친구 요청을 수락했어요");
+
 		return FriendRequestResponse.from(request, senderProfile, receiverProfile);
 	}
 
