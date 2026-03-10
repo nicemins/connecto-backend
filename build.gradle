@@ -48,6 +48,9 @@ dependencies {
 	// Google OAuth (Social Login) - GoogleIdTokenVerifier
 	implementation 'com.google.api-client:google-api-client:2.2.0'
 
+	// Firebase Admin SDK (Push Notification)
+	implementation 'com.google.firebase:firebase-admin:9.2.0'
+
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
