@@ -486,10 +486,13 @@ bash run-local.sh
 
 ## 11. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-10 (Docker 배포 완료 + API 전체 통합 테스트 완료)
+> **마지막 업데이트:** 2026-03-11 (단위 테스트 전체 완료 — 97개 테스트 통과)
 >
 > **API 테스트 결과 (2026-03-10):** 회원가입/로그인/프로필/언어/관심사/친구/신고/매칭/로그아웃 정상 동작 확인
+> **단위 테스트 현황 (2026-03-11):** AuthService, UserService, ProfileService, LanguageService, InterestService, FriendService, CallService, ReportService, AuthController(통합) — 97개 전체 통과
 > **수정 사항:** `Interest.category` → `Interest.tag` (실제 구현 필드명), `GlobalExceptionHandler` RuntimeException 로깅 추가
+> **JwtAuthenticationFilter 개선:** PUBLIC_PATHS 상수화, 토큰 타입 검증 추가
+> **ReportService 개선:** 세션 참여 검증 + 피신고자 실제 상대방 검증 추가
 
 ### 백엔드 완료 ✅
 
