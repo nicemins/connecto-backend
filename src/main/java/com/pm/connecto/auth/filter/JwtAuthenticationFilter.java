@@ -3,6 +3,7 @@ package com.pm.connecto.auth.filter;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private static final String BEARER_PREFIX = "Bearer ";
 	private static final String USER_ID_ATTRIBUTE = "userId";
 
+	private static final Set<String> PUBLIC_PATHS = Set.of(
+		"/auth/signup", "/auth/login", "/auth/refresh", "/auth/logout", "/auth/social-login",
+		"/users/exists/email", "/profiles/exists", "/health"
+	);
+
 	private final JwtTokenProvider jwtTokenProvider;
 	private final UserRepository userRepository;
 	private final ObjectMapper objectMapper;
@@ -46,45 +52,63 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	) throws ServletException, IOException {
 		String token = extractToken(request);
 
-		if (token != null) {
-			if (!jwtTokenProvider.validateToken(token)) {
+		if (token == null) {
+			if (isPublicPath(request)) {
+				filterChain.doFilter(request, response);
+			} else {
 				sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.INVALID_TOKEN);
-				return;
 			}
-
-			Long userId = jwtTokenProvider.getUserIdFromToken(token);
-			Optional<User> userOptional = userRepository.findByIdForAuth(userId);
-
-			if (userOptional.isEmpty()) {
-				sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.USER_NOT_FOUND);
-				return;
-			}
-
-			User user = userOptional.get();
-
-			// 1. deletedAt 확인 (Soft Delete)
-			if (user.getDeletedAt() != null) {
-				sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.DELETED_USER);
-				return;
-			}
-
-			// 2. status != ACTIVE 확인
-			if (!user.isActive()) {
-				if (user.isBlocked()) {
-					sendErrorResponse(response, HttpServletResponse.SC_FORBIDDEN, ErrorCode.BLOCKED_USER);
-				} else if (user.isDeleted()) {
-					sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.DELETED_USER);
-				} else {
-					// 기타 비활성 상태 (SUSPENDED, PENDING 등 향후 확장 대비)
-					sendErrorResponse(response, HttpServletResponse.SC_FORBIDDEN, ErrorCode.ACCESS_DENIED);
-				}
-				return;
-			}
-
-			request.setAttribute(USER_ID_ATTRIBUTE, userId);
+			return;
 		}
 
+		if (!jwtTokenProvider.validateToken(token)) {
+			sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.INVALID_TOKEN);
+			return;
+		}
+
+		if (!"access".equals(jwtTokenProvider.getTokenType(token))) {
+			sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.INVALID_TOKEN);
+			return;
+		}
+
+		Long userId = jwtTokenProvider.getUserIdFromToken(token);
+		Optional<User> userOptional = userRepository.findByIdForAuth(userId);
+
+		if (userOptional.isEmpty()) {
+			sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.USER_NOT_FOUND);
+			return;
+		}
+
+		User user = userOptional.get();
+
+		// 1. deletedAt 확인 (Soft Delete)
+		if (user.getDeletedAt() != null) {
+			sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.DELETED_USER);
+			return;
+		}
+
+		// 2. status != ACTIVE 확인
+		if (!user.isActive()) {
+			if (user.isBlocked()) {
+				sendErrorResponse(response, HttpServletResponse.SC_FORBIDDEN, ErrorCode.BLOCKED_USER);
+			} else if (user.isDeleted()) {
+				sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.DELETED_USER);
+			} else {
+				sendErrorResponse(response, HttpServletResponse.SC_FORBIDDEN, ErrorCode.ACCESS_DENIED);
+			}
+			return;
+		}
+
+		request.setAttribute(USER_ID_ATTRIBUTE, userId);
 		filterChain.doFilter(request, response);
+	}
+
+	private boolean isPublicPath(HttpServletRequest request) {
+		String path = request.getRequestURI();
+		if (PUBLIC_PATHS.contains(path)) return true;
+		return path.startsWith("/swagger-ui")
+			|| path.startsWith("/v3/api-docs")
+			|| path.startsWith("/h2-console");
 	}
 
 	private String extractToken(HttpServletRequest request) {

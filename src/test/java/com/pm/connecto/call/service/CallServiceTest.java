@@ -24,6 +24,8 @@ import com.pm.connecto.common.response.ErrorCode;
 import com.pm.connecto.friend.repository.FriendshipRepository;
 import com.pm.connecto.match.domain.CallSession;
 import com.pm.connecto.match.repository.CallSessionRepository;
+import com.pm.connecto.notification.service.FcmService;
+import com.pm.connecto.profile.repository.ProfileRepository;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.repository.UserRepository;
 
@@ -39,6 +41,12 @@ class CallServiceTest {
 
 	@Mock
 	private FriendshipRepository friendshipRepository;
+
+	@Mock
+	private ProfileRepository profileRepository;
+
+	@Mock
+	private FcmService fcmService;
 
 	@InjectMocks
 	private CallService callService;

@@ -111,6 +111,10 @@ public class AuthService {
 			throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
 		}
 
+		if (!"refresh".equals(jwtTokenProvider.getTokenType(refreshToken))) {
+			throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+		}
+
 		Long userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
 
 		User user = userRepository.findByIdForAuth(userId)
@@ -155,6 +159,12 @@ public class AuthService {
 
 		return userRepository.findByEmailForAuth(email)
 			.filter(u -> !u.isDeleted())
+			.map(u -> {
+				if (!req.provider().equals(u.getProvider())) {
+					throw new BusinessException(ErrorCode.INVALID_PROVIDER);
+				}
+				return u;
+			})
 			.orElseGet(() -> userRepository.save(
 				User.createSocialUser(email, req.provider(), null)));
 	}

@@ -65,8 +65,7 @@ public class GlobalExceptionHandler {
 			.stream()
 			.map(error -> new ValidationError(
 				error.getField(),
-				error.getDefaultMessage(),
-				error.getRejectedValue()
+				error.getDefaultMessage()
 			))
 			.toList();
 
@@ -92,11 +91,7 @@ public class GlobalExceptionHandler {
 				if (field.contains(".")) {
 					field = field.substring(field.lastIndexOf('.') + 1);
 				}
-				return new ValidationError(
-					field,
-					violation.getMessage(),
-					violation.getInvalidValue()
-				);
+				return new ValidationError(field, violation.getMessage());
 			})
 			.toList();
 
@@ -163,10 +158,6 @@ public class GlobalExceptionHandler {
 	/**
 	 * Validation 오류 상세 정보
 	 */
-	public record ValidationError(
-		String field,
-		String message,
-		Object rejectedValue
-	) {
+	public record ValidationError(String field, String message) {
 	}
 }

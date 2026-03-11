@@ -27,6 +27,7 @@ import com.pm.connecto.friend.domain.Friendship;
 import com.pm.connecto.friend.dto.FriendRequestResponse;
 import com.pm.connecto.friend.repository.FriendRequestRepository;
 import com.pm.connecto.friend.repository.FriendshipRepository;
+import com.pm.connecto.notification.service.FcmService;
 import com.pm.connecto.profile.repository.ProfileRepository;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.repository.UserRepository;
@@ -46,6 +47,9 @@ class FriendServiceTest {
 
 	@Mock
 	private ProfileRepository profileRepository;
+
+	@Mock
+	private FcmService fcmService;
 
 	@InjectMocks
 	private FriendService friendService;

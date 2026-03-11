@@ -27,7 +27,7 @@ public class WebConfig implements WebMvcConfigurer {
 			.allowedOrigins(allowedOrigins)
 			.allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
 			.allowedHeaders("*")
-			.exposedHeaders("Set-Cookie", "Authorization")
+			.exposedHeaders("Authorization")
 			.allowCredentials(true)
 			.maxAge(3600);  // 1시간 동안 preflight 캐시
 	}

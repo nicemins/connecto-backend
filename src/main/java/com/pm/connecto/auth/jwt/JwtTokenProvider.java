@@ -30,23 +30,33 @@ public class JwtTokenProvider {
 	}
 
 	public String generateAccessToken(Long userId) {
-		return generateToken(userId, accessExpiration);
+		return generateToken(userId, "access", accessExpiration);
 	}
 
 	public String generateRefreshToken(Long userId) {
-		return generateToken(userId, refreshExpiration);
+		return generateToken(userId, "refresh", refreshExpiration);
 	}
 
-	private String generateToken(Long userId, long expiration) {
+	private String generateToken(Long userId, String type, long expiration) {
 		Date now = new Date();
 		Date expiryDate = new Date(now.getTime() + expiration);
 
 		return Jwts.builder()
 			.subject(String.valueOf(userId))
+			.claim("type", type)
 			.issuedAt(now)
 			.expiration(expiryDate)
 			.signWith(secretKey)
 			.compact();
+	}
+
+	public String getTokenType(String token) {
+		Claims claims = Jwts.parser()
+			.verifyWith(secretKey)
+			.build()
+			.parseSignedClaims(token)
+			.getPayload();
+		return claims.get("type", String.class);
 	}
 
 	public boolean validateToken(String token) {

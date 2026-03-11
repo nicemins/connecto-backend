@@ -50,7 +50,7 @@ class AuthControllerTest {
 	private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
 	private static final String TEST_EMAIL = "test@example.com";
-	private static final String TEST_PASSWORD = "password123";
+	private static final String TEST_PASSWORD = "Password123";
 
 	@Nested
 	@DisplayName("POST /auth/signup - 회원가입")

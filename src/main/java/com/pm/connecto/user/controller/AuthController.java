@@ -133,7 +133,10 @@ public class AuthController {
 	@PostMapping("/logout")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public ResponseEntity<Void> logout() {
-		fcmService.deleteAllTokens(userContext.getUserId());
+		Long userId = userContext.getUserIdOrNull();
+		if (userId != null) {
+			fcmService.deleteAllTokens(userId);
+		}
 
 		ResponseCookie deleteCookie = ResponseCookie.from("refreshToken", "")
 			.httpOnly(true)
