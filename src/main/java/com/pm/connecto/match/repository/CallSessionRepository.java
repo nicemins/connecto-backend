@@ -20,6 +20,12 @@ public interface CallSessionRepository extends JpaRepository<CallSession, Long> 
 	Optional<CallSession> findByIdAndUserId(@Param("sessionId") Long sessionId, @Param("userId") Long userId);
 
 	/**
+	 * WebRTC 채널 ID와 사용자 ID로 세션 조회 (채널 입장 권한 확인용)
+	 */
+	@Query("SELECT cs FROM CallSession cs WHERE cs.webrtcChannelId = :channelId AND (cs.user1.id = :userId OR cs.user2.id = :userId)")
+	Optional<CallSession> findByWebrtcChannelIdAndUserId(@Param("channelId") String channelId, @Param("userId") Long userId);
+
+	/**
 	 * 사용자가 진행 중인 세션 조회
 	 */
 	@Query("SELECT cs FROM CallSession cs WHERE (cs.user1.id = :userId OR cs.user2.id = :userId) AND cs.status = :status")

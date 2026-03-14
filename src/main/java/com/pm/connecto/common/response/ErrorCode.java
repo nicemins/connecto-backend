@@ -56,6 +56,9 @@ public enum ErrorCode {
 	FILE_SIZE_EXCEEDED(HttpStatus.BAD_REQUEST, "FILE_SIZE_EXCEEDED", "파일 크기가 5MB를 초과합니다."),
 	FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "FILE_UPLOAD_FAILED", "파일 업로드에 실패했습니다."),
 
+	// 429 Too Many Requests
+	TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."),
+
 	// 500 Internal Server Error
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "서버 오류가 발생했습니다."),
 	MATCHING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "MATCHING_FAILED", "매칭에 실패했습니다."),

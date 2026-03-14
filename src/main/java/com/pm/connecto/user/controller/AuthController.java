@@ -136,6 +136,7 @@ public class AuthController {
 		Long userId = userContext.getUserIdOrNull();
 		if (userId != null) {
 			fcmService.deleteAllTokens(userId);
+			authService.revokeRefreshToken(userId);
 		}
 
 		ResponseCookie deleteCookie = ResponseCookie.from("refreshToken", "")

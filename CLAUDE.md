@@ -486,13 +486,14 @@ bash run-local.sh
 
 ## 11. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-11 (단위 테스트 전체 완료 — 97개 테스트 통과)
+> **마지막 업데이트:** 2026-03-14 (TURN 자격증명 API 구현 완료 — SEC-H1 백엔드 해결)
 >
 > **API 테스트 결과 (2026-03-10):** 회원가입/로그인/프로필/언어/관심사/친구/신고/매칭/로그아웃 정상 동작 확인
 > **단위 테스트 현황 (2026-03-11):** AuthService, UserService, ProfileService, LanguageService, InterestService, FriendService, CallService, ReportService, AuthController(통합) — 97개 전체 통과
 > **수정 사항:** `Interest.category` → `Interest.tag` (실제 구현 필드명), `GlobalExceptionHandler` RuntimeException 로깅 추가
 > **JwtAuthenticationFilter 개선:** PUBLIC_PATHS 상수화, 토큰 타입 검증 추가
 > **ReportService 개선:** 세션 참여 검증 + 피신고자 실제 상대방 검증 추가
+> **보안 강화 (2026-03-13):** OWASP Top 10 감사 Rev 3 완료. Refresh Token Redis 폐기, Rate Limiting, WebRTC 채널 인가, 스레드 풀 제한, 보안 헤더 5종 추가
 
 ### 백엔드 완료 ✅
 
@@ -512,6 +513,7 @@ bash run-local.sh
 | 소켓 매칭 | `match:start`, `match:cancel` on / `match:success`, `match:error`, `match:cancelled` emit | |
 | WebRTC 시그널링 | `webrtc:join/offer/answer/ice` 핸들러 + `match:success`에 `isOfferer` 추가 | **2026-03-06 구현 완료** |
 | 푸시 알림 | `POST/DELETE /users/me/device-token` | **2026-03-09 FCM 구현 완료** — 친구 요청/수락/통화 요청 트리거 포함 |
+| TURN 자격증명 | `GET /webrtc/turn-credentials` | **2026-03-14 구현 완료** — HMAC-SHA1 단기 자격증명, TURN 미설정 시 STUN only (SEC-H1 백엔드) |
 
 ### 프로필 이미지 업로드 세부 사항 (2026-03-07)
 
@@ -564,6 +566,41 @@ FIREBASE_SERVICE_ACCOUNT_JSON
 | 통화 요청 | CallService.requestCallToFriend() | "통화 요청" | "{nickname}님이 통화를 요청했어요" |
 
 > FCM 전송 실패는 비즈니스 로직에 영향 없음 (로그만 기록). 로컬 개발 시 FIREBASE_SERVICE_ACCOUNT_JSON 없이 정상 동작.
+
+### 보안 강화 세부 사항 (2026-03-13)
+
+OWASP Top 10 감사 3회 수행, 17개 전체 이슈 해결 완료. 감사 문서: `docs/02-design/security-spec.md`
+
+**Rev 3 (2026-03-13) 수정 내역:**
+
+| 파일 | 역할 |
+|------|------|
+| `auth/service/AuthService.java` | `generateRefreshToken()` → Redis `rt:{userId}` 저장 (TTL 7일). `refreshAccessToken()` → Redis 검증. `revokeRefreshToken()` → 로그아웃 시 삭제 |
+| `auth/interceptor/AuthRateLimitInterceptor.java` | IP별 Rate Limiting: login/social-login 10회/분, signup 5회/시간. Redis 기반 INCR+EXPIRE. 429 응답 |
+| `common/config/WebConfig.java` | `AuthRateLimitInterceptor` 등록 (`/auth/login`, `/auth/signup`, `/auth/social-login`) |
+| `common/filter/SecurityHeadersFilter.java` | 보안 헤더 5종: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP, HSTS |
+| `match/handler/MatchSocketHandler.java` | URL query param 토큰 제거(M-02), WebRTC 채널 인가(M-04), raw Thread → ExecutorService(100) + 120s timeout(M-06) |
+| `match/repository/CallSessionRepository.java` | `findByWebrtcChannelIdAndUserId()` 추가 |
+| `common/response/ErrorCode.java` | `TOO_MANY_REQUESTS` (429) 추가 |
+
+> Redis 없는 환경(로컬 개발)에서는 Rate Limiting과 Token Revocation이 자동 비활성화 (`@Autowired(required=false)`).
+
+### TURN 자격증명 세부 사항 (2026-03-14)
+
+| 파일 | 역할 |
+|------|------|
+| `webrtc/controller/TurnCredentialController.java` | `GET /webrtc/turn-credentials` — 인증 필수 |
+| `webrtc/service/TurnCredentialService.java` | HMAC-SHA1 자격증명 생성 (Coturn `--use-auth-secret` 호환), TTL 3600s |
+| `webrtc/dto/TurnCredentialResponse.java` | `{ iceServers: [{ urls, username?, credential? }], ttl }` |
+| `application.yaml` | `turn.secret`, `turn.url`, `turn.stun-url` 설정 추가 |
+
+**환경변수 추가:**
+```
+TURN_SECRET=   # Coturn --static-auth-secret 값 (미설정 시 STUN only)
+TURN_URL=      # 예: turn:your-server.com:3478
+```
+
+> 프론트엔드 연동: `GET /webrtc/turn-credentials` 호출 후 `RTCPeerConnection({ iceServers })` 초기화. `EXPO_PUBLIC_TURN_*` 환경변수 제거 필요 (프론트 SEC-H1).
 
 ### 백엔드 미구현 항목 ❌
 

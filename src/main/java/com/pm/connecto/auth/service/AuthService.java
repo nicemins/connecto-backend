@@ -1,9 +1,12 @@
 package com.pm.connecto.auth.service;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Stream;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,9 +28,14 @@ import com.pm.connecto.user.repository.UserRepository;
 @Service
 public class AuthService {
 
+	private static final String REFRESH_TOKEN_KEY_PREFIX = "rt:";
+
 	private final UserRepository userRepository;
 	private final JwtTokenProvider jwtTokenProvider;
 	private final PasswordEncoder passwordEncoder;
+
+	@Autowired(required = false)
+	private RedisTemplate<String, String> redisTemplate;
 
 	@Value("${google.android-client-id:}")
 	private String googleAndroidClientId;
@@ -94,7 +102,21 @@ public class AuthService {
 	 * - JWT 토큰 생성만 수행
 	 */
 	public String generateRefreshToken(Long userId) {
-		return jwtTokenProvider.generateRefreshToken(userId);
+		String token = jwtTokenProvider.generateRefreshToken(userId);
+		if (redisTemplate != null) {
+			redisTemplate.opsForValue().set(
+				REFRESH_TOKEN_KEY_PREFIX + userId,
+				token,
+				Duration.ofMillis(jwtTokenProvider.getRefreshExpiration())
+			);
+		}
+		return token;
+	}
+
+	public void revokeRefreshToken(Long userId) {
+		if (redisTemplate != null) {
+			redisTemplate.delete(REFRESH_TOKEN_KEY_PREFIX + userId);
+		}
 	}
 
 	/**
@@ -116,6 +138,13 @@ public class AuthService {
 		}
 
 		Long userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
+
+		if (redisTemplate != null) {
+			String stored = redisTemplate.opsForValue().get(REFRESH_TOKEN_KEY_PREFIX + userId);
+			if (!refreshToken.equals(stored)) {
+				throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+			}
+		}
 
 		User user = userRepository.findByIdForAuth(userId)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));

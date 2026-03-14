@@ -36,6 +36,11 @@ out/
 ### VS Code ###
 .vscode/
 
+### Claude Code / bkit ###
+.claude/
+.bkit/
+connecto-pgadmin-servers.json
+
 ### Node.js / Frontend ###
 node_modules/
 npm-debug.log*

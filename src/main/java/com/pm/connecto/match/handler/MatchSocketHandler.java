@@ -6,8 +6,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import com.corundumstudio.socketio.SocketIOClient;
@@ -47,11 +49,16 @@ public class MatchSocketHandler {
 	private final MatchQueueService matchQueueService;
 	private final CallSessionRepository callSessionRepository;
 
+	private static final long MAX_WAIT_MS = 120_000L; // 최대 2분 대기
+
 	// 클라이언트별 사용자 ID 매핑
 	private final Map<String, Long> clientUserIdMap = new ConcurrentHashMap<>();
 
 	// 채널별 소켓 클라이언트 추적 (WebRTC 시그널 릴레이용)
 	private final Map<String, Set<SocketIOClient>> channelRoomMap = new ConcurrentHashMap<>();
+
+	// 매칭 스레드 풀 (최대 100개로 제한)
+	private final ExecutorService matchingExecutor = Executors.newFixedThreadPool(100);
 
 	public MatchSocketHandler(
 		SocketIOServer socketIOServer,
@@ -77,6 +84,7 @@ public class MatchSocketHandler {
 
 	@PreDestroy
 	public void stop() {
+		matchingExecutor.shutdown();
 		socketIOServer.stop();
 		log.info("Socket.io server stopped");
 	}
@@ -87,17 +95,13 @@ public class MatchSocketHandler {
 	@OnConnect
 	public void onConnect(SocketIOClient client) {
 		try {
-			// 쿼리 파라미터 또는 auth 객체에서 토큰 추출
-			String token = client.getHandshakeData().getSingleUrlParam("token");
-			
-			// auth 객체에서 토큰 추출 시도 (Socket.io 클라이언트가 auth로 보낼 경우)
-			if (token == null || token.isEmpty()) {
-				Object authObj = client.getHandshakeData().getHttpHeaders().get("Authorization");
-				if (authObj != null) {
-					String authHeader = authObj.toString();
-					if (authHeader.startsWith("Bearer ")) {
-						token = authHeader.substring(7);
-					}
+			// Authorization 헤더에서만 토큰 추출 (URL 파라미터는 로그 노출 위험으로 제거)
+			String token = null;
+			Object authObj = client.getHandshakeData().getHttpHeaders().get("Authorization");
+			if (authObj != null) {
+				String authHeader = authObj.toString();
+				if (authHeader.startsWith("Bearer ")) {
+					token = authHeader.substring(7);
 				}
 			}
 			
@@ -235,11 +239,22 @@ public class MatchSocketHandler {
 	 * 비동기 매칭 시도
 	 * - 대기 중인 사용자에게 주기적으로 매칭 시도
 	 */
-	@Async
 	private void startAsyncMatching(Long userId, SocketIOClient client) {
-		Thread matchingThread = new Thread(() -> {
+		matchingExecutor.submit(() -> {
+			final long startTime = System.currentTimeMillis();
 			try {
 				while (matchQueueService.isInQueue(userId) && client.isChannelOpen()) {
+					if (System.currentTimeMillis() - startTime > MAX_WAIT_MS) {
+						try { matchService.cancelMatching(userId); } catch (Exception ignored) {}
+						if (client.isChannelOpen()) {
+							client.sendEvent("match:error", Map.of(
+								"code", "MATCHING_TIMEOUT",
+								"message", "매칭 시간이 초과되었습니다."
+							));
+						}
+						return;
+					}
+
 					Thread.sleep(2000); // 2초마다 시도
 
 					Long matchedUserId = matchQueueService.findMatch(userId);
@@ -287,7 +302,7 @@ public class MatchSocketHandler {
 				}
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				log.info("Matching thread interrupted for user {}", userId);
+				log.info("Matching task interrupted for user {}", userId);
 			} catch (Exception e) {
 				log.error("Error during async matching for user {}", userId, e);
 				if (client.isChannelOpen()) {
@@ -298,8 +313,6 @@ public class MatchSocketHandler {
 				}
 			}
 		});
-		matchingThread.setDaemon(true);
-		matchingThread.start();
 	}
 
 	/**
@@ -312,6 +325,13 @@ public class MatchSocketHandler {
 
 		String channelId = (String) data.get("channelId");
 		if (channelId == null) return;
+
+		// 사용자가 해당 채널의 세션 참여자인지 검증
+		if (callSessionRepository.findByWebrtcChannelIdAndUserId(channelId, userId).isEmpty()) {
+			log.warn("User {} is not authorized for WebRTC channel {}", userId, channelId);
+			client.sendEvent("webrtc:error", Map.of("message", "채널 접근 권한이 없습니다."));
+			return;
+		}
 
 		channelRoomMap.computeIfAbsent(channelId, k -> ConcurrentHashMap.newKeySet()).add(client);
 		log.info("User {} joined WebRTC channel {}", userId, channelId);

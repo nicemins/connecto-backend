@@ -4,4 +4,4 @@ set -a
 source .env.local
 set +a
 
-./gradlew bootRun
+./gradlew bootRun --args='--spring.profiles.active=dev'

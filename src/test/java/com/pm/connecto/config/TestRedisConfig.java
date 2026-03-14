@@ -1,5 +1,6 @@
 package com.pm.connecto.config;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import org.redisson.api.RLock;
@@ -8,6 +9,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 import com.pm.connecto.common.service.S3Service;
 import com.pm.connecto.match.service.MatchQueueService;
@@ -16,6 +18,7 @@ import com.pm.connecto.match.service.MatchService;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -30,9 +33,26 @@ public class TestRedisConfig {
 
 	@Bean
 	@Primary
+	@SuppressWarnings("unchecked")
 	public RedisTemplate<String, String> redisTemplate() {
-		// Mock RedisTemplate 반환 (실제 Redis 연결 없이 테스트 가능)
-		return mock(RedisTemplate.class);
+		// 인메모리 Map으로 동작하는 Mock RedisTemplate
+		ConcurrentHashMap<String, String> store = new ConcurrentHashMap<>();
+
+		ValueOperations<String, String> mockValueOps = mock(ValueOperations.class);
+		doAnswer(inv -> {
+			store.put(inv.getArgument(0), inv.getArgument(1));
+			return null;
+		}).when(mockValueOps).set(anyString(), anyString(), any());
+		when(mockValueOps.get(anyString())).thenAnswer(inv -> store.get(inv.getArgument(0)));
+		when(mockValueOps.increment(anyString())).thenReturn(1L);
+
+		RedisTemplate<String, String> mockTemplate = mock(RedisTemplate.class);
+		when(mockTemplate.opsForValue()).thenReturn(mockValueOps);
+		when(mockTemplate.expire(anyString(), any())).thenReturn(true);
+		doAnswer(inv -> { store.remove(inv.getArgument(0).toString()); return true; })
+			.when(mockTemplate).delete(anyString());
+
+		return mockTemplate;
 	}
 
 	@Bean

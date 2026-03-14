@@ -3,7 +3,10 @@ package com.pm.connecto.common.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import com.pm.connecto.auth.interceptor.AuthRateLimitInterceptor;
 
 /**
  * 웹 설정 (CORS 등)
@@ -20,6 +23,18 @@ public class WebConfig implements WebMvcConfigurer {
 
 	@Value("${cors.allowed-origins:http://localhost:3000}")
 	private String[] allowedOrigins;
+
+	private final AuthRateLimitInterceptor authRateLimitInterceptor;
+
+	public WebConfig(AuthRateLimitInterceptor authRateLimitInterceptor) {
+		this.authRateLimitInterceptor = authRateLimitInterceptor;
+	}
+
+	@Override
+	public void addInterceptors(InterceptorRegistry registry) {
+		registry.addInterceptor(authRateLimitInterceptor)
+			.addPathPatterns("/auth/login", "/auth/signup", "/auth/social-login");
+	}
 
 	@Override
 	public void addCorsMappings(CorsRegistry registry) {

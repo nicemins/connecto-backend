@@ -61,3 +61,8 @@ google:
 
 firebase:
   service-account-json: ${FIREBASE_SERVICE_ACCOUNT_JSON:}
+
+turn:
+  secret: ${TURN_SECRET:}
+  url: ${TURN_URL:}
+  stun-url: stun:stun.l.google.com:19302
