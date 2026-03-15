@@ -121,9 +121,17 @@ public class CallService {
 
 		log.info("User {} expressed call again preference: {} for session {}", userId, wantAgain, sessionId);
 
+		// wantAgain = true 시 상대방에게 FCM 알림
+		if (wantAgain) {
+			User otherUser = session.getOtherUser(userId);
+			Profile myProfile = profileRepository.findByUserId(userId).orElse(null);
+			String myNickname = myProfile != null ? myProfile.getNickname() : "누군가";
+			fcmService.sendToUserAsync(otherUser.getId(), "재통화 요청", myNickname + "님이 다시 통화하고 싶어해요");
+		}
+
 		// 양측 모두 👍를 누른 경우 재연결 처리
 		if (!wasBothWantAgain && session.bothWantAgain()) {
-			log.info("Both users want to reconnect: Session {}, Users: {} and {}", 
+			log.info("Both users want to reconnect: Session {}, Users: {} and {}",
 				sessionId, session.getUser1().getId(), session.getUser2().getId());
 			// TODO: 재연결 로직 구현 (친구 맺기 또는 다시 통화)
 			// - 친구 관계 생성 또는 재매칭 트리거

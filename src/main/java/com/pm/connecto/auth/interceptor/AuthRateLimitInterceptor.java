@@ -1,10 +1,11 @@
 package com.pm.connecto.auth.interceptor;
 
 import java.io.IOException;
-import java.time.Duration;
+import java.util.Collections;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -25,6 +26,14 @@ import jakarta.servlet.http.HttpServletResponse;
  */
 @Component
 public class AuthRateLimitInterceptor implements HandlerInterceptor {
+
+	// Lua 스크립트로 INCR+EXPIRE 원자 실행 (pExpire 버그 우회)
+	private static final DefaultRedisScript<Long> RATE_LIMIT_SCRIPT = new DefaultRedisScript<>(
+		"local c = redis.call('INCR', KEYS[1]); " +
+		"if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end; " +
+		"return c",
+		Long.class
+	);
 
 	@Autowired(required = false)
 	private RedisTemplate<String, String> redisTemplate;
@@ -50,10 +59,7 @@ public class AuthRateLimitInterceptor implements HandlerInterceptor {
 
 	private boolean checkLimit(String ip, String action, int limit, long windowSeconds, HttpServletResponse response) throws IOException {
 		String key = "rate:" + action + ":" + ip;
-		Long count = redisTemplate.opsForValue().increment(key);
-		if (count != null && count == 1) {
-			redisTemplate.expire(key, Duration.ofSeconds(windowSeconds));
-		}
+		Long count = redisTemplate.execute(RATE_LIMIT_SCRIPT, Collections.singletonList(key), String.valueOf(windowSeconds));
 		if (count != null && count > limit) {
 			response.setStatus(429);
 			response.setContentType("application/json;charset=UTF-8");

@@ -95,18 +95,26 @@ public class MatchSocketHandler {
 	@OnConnect
 	public void onConnect(SocketIOClient client) {
 		try {
-			// Authorization 헤더에서만 토큰 추출 (URL 파라미터는 로그 노출 위험으로 제거)
+			// 디버그: 실제로 들어오는 값 확인
+			String authHeader = client.getHandshakeData().getHttpHeaders().get("Authorization");
+			String tokenParam = client.getHandshakeData().getSingleUrlParam("token");
+			log.debug("Socket connect - Authorization header: {}, token param present: {}",
+				authHeader != null ? "present" : "null",
+				tokenParam != null ? "present" : "null");
+
+			// 방법 1: HTTP Authorization 헤더 (extraHeaders로 전송 시)
 			String token = null;
-			Object authObj = client.getHandshakeData().getHttpHeaders().get("Authorization");
-			if (authObj != null) {
-				String authHeader = authObj.toString();
-				if (authHeader.startsWith("Bearer ")) {
-					token = authHeader.substring(7);
-				}
+			if (authHeader != null && authHeader.startsWith("Bearer ")) {
+				token = authHeader.substring(7);
 			}
-			
+
+			// 방법 2: URL query param fallback (?token=...)
+			if (token == null && tokenParam != null && !tokenParam.isEmpty()) {
+				token = tokenParam;
+			}
+
 			if (token == null || token.isEmpty()) {
-				log.warn("Client {} connected without token", client.getSessionId());
+				log.warn("Client {} connected without token (no Authorization header or token param)", client.getSessionId());
 				client.disconnect();
 				return;
 			}
@@ -185,6 +193,13 @@ public class MatchSocketHandler {
 					"code", "ALREADY_IN_CALL",
 					"message", "이미 통화 중입니다."
 				));
+				return;
+			}
+
+			// 이미 대기열에 있으면 (REST API로 먼저 진입한 경우) 비동기 매칭만 시작
+			if (matchQueueService.isInQueue(userId)) {
+				log.info("User {} already in queue (via REST), starting async matching via socket", userId);
+				startAsyncMatching(userId, client);
 				return;
 			}
 

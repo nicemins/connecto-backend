@@ -30,7 +30,7 @@
 | Framework | Spring Boot 3.5.9 | |
 | Build | Gradle (YAML config) | |
 | DB (prod) | PostgreSQL | |
-| DB (dev) | H2 (in-memory) | `jdbc:h2:mem:connecto` |
+| DB (dev) | PostgreSQL (로컬) | Windows 로컬 postgres:5432 / `connecto` DB |
 | Cache | Redis 6379 | Lettuce pool |
 | 분산 락 | Redisson | 매칭 큐 동시성 제어 |
 | Auth | JWT Custom Filter | Spring Security 없음 |
@@ -464,16 +464,28 @@ FIREBASE_SERVICE_ACCOUNT_JSON=<service_account_json_content>  # 미설정 시 FC
 
 ### 빠른 시작 (권장)
 ```bash
+# JAVA_HOME 필요 (bash에서 java 못 찾을 경우)
+export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot"
+export PATH="$JAVA_HOME/bin:$PATH"
+
 bash run-local.sh
-# → .env.local 자동 로드 후 bootRun
-# H2 콘솔: http://localhost:8080/h2-console
+# → .env.local 자동 로드 후 bootRun (dev 프로파일: PostgreSQL + Redis)
 # Swagger:  http://localhost:8080/swagger-ui.html
-# 매칭 API는 비활성화됨 (Redis 필요)
+# Socket.IO: ws://localhost:9092
+# H2 콘솔: 비활성화 (dev 프로파일)
 ```
 
-### Redis 포함 전체 실행
+> **주의:** `run-local.sh`는 CRLF 줄바꿈 문제로 PowerShell에서 직접 실행하면 오류 남. Git Bash에서 실행할 것.
+
+### 로컬 DB (PostgreSQL)
+- 위치: 로컬 Windows PostgreSQL 17 (port 5432, PID ~8680)
+- DB명: `connecto` (pgAdmin4에서 생성)
+- 유저: `postgres` / 비밀번호: `.env.local`의 `DB_PASSWORD`
+- `application-dev.yaml`로 H2 대신 PostgreSQL 사용 (`ddl-auto: update`)
+
+### Redis 포함 전체 실행 (매칭 기능 포함)
 ```bash
-docker-compose up -d   # Redis 실행
+docker-compose up -d   # Redis 컨테이너 실행 (connecto-redis)
 bash run-local.sh
 ```
 
@@ -486,7 +498,7 @@ bash run-local.sh
 
 ## 11. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-14 (TURN 자격증명 API 구현 완료 — SEC-H1 백엔드 해결)
+> **마지막 업데이트:** 2026-03-15 (에뮬레이터 테스트 버그 수정 — DB전환, Redis 버그, Socket.IO 인증, 매칭 이중 진입, FCM /call/again)
 >
 > **API 테스트 결과 (2026-03-10):** 회원가입/로그인/프로필/언어/관심사/친구/신고/매칭/로그아웃 정상 동작 확인
 > **단위 테스트 현황 (2026-03-11):** AuthService, UserService, ProfileService, LanguageService, InterestService, FriendService, CallService, ReportService, AuthController(통합) — 97개 전체 통과
@@ -494,6 +506,7 @@ bash run-local.sh
 > **JwtAuthenticationFilter 개선:** PUBLIC_PATHS 상수화, 토큰 타입 검증 추가
 > **ReportService 개선:** 세션 참여 검증 + 피신고자 실제 상대방 검증 추가
 > **보안 강화 (2026-03-13):** OWASP Top 10 감사 Rev 3 완료. Refresh Token Redis 폐기, Rate Limiting, WebRTC 채널 인가, 스레드 풀 제한, 보안 헤더 5종 추가
+> **에뮬레이터 테스트 버그 수정 (2026-03-15):** 로컬 DB → PostgreSQL 전환, Redis pExpire 버그 Lua 스크립트로 수정, Socket.IO 토큰 추출(헤더+URL param), 매칭 이중 진입 방지, stale 세션 정리 5분, /call/again FCM 알림 추가
 
 ### 백엔드 완료 ✅
 
@@ -506,7 +519,7 @@ bash run-local.sh
 | 관심사 | `POST/GET/DELETE /users/me/interests` | **2026-03-06 구현 완료** — `GET /users/me` 응답에 포함 |
 | 매칭 | `POST /match/start,cancel`, `GET /match/status,result/{id}` | Redis 필요 (@ConditionalOnProperty) |
 | 인증 (소셜) | `POST /auth/social-login` | **2026-03-07 Google OAuth ID Token 검증 구현** — User 자동 생성 포함 |
-| 통화 | `POST /call/end`, `POST /call/again`, `POST /call/request/{friendId}` | **2026-03-06 친구 통화 요청 추가** |
+| 통화 | `POST /call/end`, `POST /call/again`, `POST /call/request/{friendId}` | **2026-03-06 친구 통화 요청 추가** / **2026-03-15 /call/again FCM 알림 추가** (wantAgain=true 시 상대방에게 "재통화 요청" 알림) |
 | 신고 | `POST /reports` | **2026-03-06 구현 완료** — 자기 신고/중복 신고 방지 |
 | 친구 | `GET /friends`, `GET /friends/requests`, `POST /friends/request`, `PATCH /friends/request/{id}/accept`, `PATCH /friends/request/{id}/reject` | **2026-03-06 구현 완료** |
 | 스케줄러 | CallSessionScheduler — 5분 초과 자동 종료 + 대기열 만료 정리 | **2026-03-06 구현 확인 완료** |
@@ -602,6 +615,24 @@ TURN_URL=      # 예: turn:your-server.com:3478
 
 > 프론트엔드 연동: `GET /webrtc/turn-credentials` 호출 후 `RTCPeerConnection({ iceServers })` 초기화. `EXPO_PUBLIC_TURN_*` 환경변수 제거 필요 (프론트 SEC-H1).
 
+### 에뮬레이터 테스트 버그 수정 세부 사항 (2026-03-15)
+
+| 파일 | 수정 내용 |
+|------|----------|
+| `src/main/resources/application-dev.yaml` | H2 → PostgreSQL 전환. `ddl-auto: update`, `PostgreSQLDialect`, Redis 비밀번호 추가 |
+| `src/main/resources/application.yaml` | `ddl-auto: create-drop` → `update` |
+| `.env.local` | `DB_PASSWORD` 추가 |
+| `auth/interceptor/AuthRateLimitInterceptor.java` | Spring Data Redis 3.5.7 `pExpire` StackOverflowError 버그 수정 — `redisTemplate.expire()` → Lua 스크립트 `INCR+EXPIRE` 원자 실행으로 대체 |
+| `match/handler/MatchSocketHandler.java` | ① Socket.IO 토큰 추출 개선: `Authorization` 헤더 + `?token=` URL param 둘 다 지원 (netty-socketio는 `socket.auth` 미지원) ② 매칭 이중 진입 방지: REST `/match/start` 후 `match:start` 소켓 이벤트 수신 시 이미 대기열에 있으면 enqueue 건너뛰고 async 매칭만 시작 |
+| `match/service/MatchService.java` | stale IN_PROGRESS 세션 자동 정리 기준 10분 → **5분**으로 단축 |
+| `call/service/CallService.java` | `expressCallAgain()` — `wantAgain=true` 시 상대방에게 FCM 비동기 알림 발송 ("재통화 요청", "{nickname}님이 다시 통화하고 싶어해요") |
+
+**알려진 미해결 이슈:**
+- WebRTC 통화 연결 불안정 (에뮬레이터 환경에서 STUN 경유 — TURN 서버 없음)
+- `GET /webrtc/turn-credentials` API 미구현 (STUN fallback으로 로컬 테스트 가능, 실기기 LTE 환경에서 필요)
+
 ### 백엔드 미구현 항목 ❌
 
-현재 모든 백엔드 기능이 구현 완료되었습니다. 추가 요구사항이 생기면 이 섹션에 기록합니다.
+| 항목 | 설명 | 우선순위 |
+|------|------|----------|
+| TURN 서버 자격증명 API | `GET /webrtc/turn-credentials` — Coturn HMAC 자격증명 발급. 로컬/WiFi 테스트는 STUN fallback으로 가능. LTE/방화벽 환경에서 필요 | 배포 전 |

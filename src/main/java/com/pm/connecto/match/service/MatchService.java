@@ -1,5 +1,6 @@
 package com.pm.connecto.match.service;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -58,7 +59,18 @@ public class MatchService {
 	 */
 	@Transactional
 	public MatchStartResponse startMatching(Long userId) {
-		// 진행 중인 통화 확인
+		// 잔존 IN_PROGRESS 세션 자동 정리 (WebRTC 실패 등으로 /call/end 미호출 시)
+		callSessionRepository.findInProgressByUserId(userId).ifPresent(session -> {
+			boolean isStale = session.getStartedAt() == null
+				|| session.getStartedAt().isBefore(LocalDateTime.now().minusMinutes(5));
+			if (isStale) {
+				session.end();
+				callSessionRepository.save(session);
+				log.info("Auto-ended stale session {} for user {}", session.getId(), userId);
+			}
+		});
+
+		// 진행 중인 통화 확인 (정리 후 재확인)
 		if (callSessionRepository.findInProgressByUserId(userId).isPresent()) {
 			log.warn("User {} is already in a call", userId);
 			throw new ForbiddenException(ErrorCode.ALREADY_IN_CALL);
