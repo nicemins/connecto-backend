@@ -17,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.pm.connecto.call.dto.FriendCallResponse;
+import com.pm.connecto.common.exception.BusinessException;
 import com.pm.connecto.common.exception.DuplicateResourceException;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
@@ -111,7 +112,7 @@ class CallServiceTest {
 		}
 
 		@Test
-		@DisplayName("실패: 이미 종료된 세션을 종료하려 하면 ForbiddenException 발생")
+		@DisplayName("실패: 이미 종료된 세션을 종료하려 하면 BusinessException(INVALID_SESSION_STATE) 발생")
 		void 이미_종료된_세션_예외() {
 			// given
 			User user1 = mockUser(USER1_ID);
@@ -121,8 +122,8 @@ class CallServiceTest {
 
 			// when & then
 			assertThatThrownBy(() -> callService.endCall(SESSION_ID, USER1_ID))
-				.isInstanceOf(ForbiddenException.class)
-				.hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCESS_DENIED);
+				.isInstanceOf(BusinessException.class)
+				.hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_SESSION_STATE);
 		}
 	}
 
@@ -163,7 +164,7 @@ class CallServiceTest {
 		}
 
 		@Test
-		@DisplayName("실패: IN_PROGRESS 세션에서 재연결 의사 표현 시 ForbiddenException 발생")
+		@DisplayName("실패: IN_PROGRESS 세션에서 재연결 의사 표현 시 BusinessException(INVALID_SESSION_STATE) 발생")
 		void 진행_중_세션_재연결_예외() {
 			// given
 			User user1 = mockUser(USER1_ID);
@@ -173,8 +174,8 @@ class CallServiceTest {
 
 			// when & then
 			assertThatThrownBy(() -> callService.expressCallAgain(SESSION_ID, USER1_ID, true))
-				.isInstanceOf(ForbiddenException.class)
-				.hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCESS_DENIED);
+				.isInstanceOf(BusinessException.class)
+				.hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_SESSION_STATE);
 		}
 	}
 

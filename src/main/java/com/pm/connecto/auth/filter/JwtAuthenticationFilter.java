@@ -1,7 +1,6 @@
 package com.pm.connecto.auth.filter;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.Set;
 
@@ -10,8 +9,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pm.connecto.auth.jwt.JwtTokenProvider;
+import com.pm.connecto.common.response.ApiResponse;
 import com.pm.connecto.common.response.ErrorCode;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.repository.UserRepository;
@@ -37,11 +36,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private final UserRepository userRepository;
 	private final ObjectMapper objectMapper;
 
-	public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider, UserRepository userRepository) {
+	public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider, UserRepository userRepository, ObjectMapper objectMapper) {
 		this.jwtTokenProvider = jwtTokenProvider;
 		this.userRepository = userRepository;
-		this.objectMapper = new ObjectMapper();
-		this.objectMapper.registerModule(new JavaTimeModule());
+		this.objectMapper = objectMapper;
 	}
 
 	@Override
@@ -123,16 +121,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		response.setStatus(status);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding("UTF-8");
-
-		ErrorResponse errorResponse = new ErrorResponse(
-			false,
-			errorCode.getCode(),
-			errorCode.getMessage(),
-			LocalDateTime.now()
-		);
-
-		response.getWriter().write(objectMapper.writeValueAsString(errorResponse));
+		response.getWriter().write(objectMapper.writeValueAsString(ApiResponse.error(errorCode)));
 	}
-
-	private record ErrorResponse(boolean success, String code, String message, LocalDateTime timestamp) {}
 }

@@ -1,5 +1,70 @@
 # Connecto Changelog
 
+## [2026-03-17] - API Exception Handling & Quality Improvements Complete
+
+### Added
+- **GlobalExceptionHandler**: Centralized `@RestControllerAdvice` with 9 specialized handlers covering all exception types
+- **Error Code Enum**: 25 standardized error codes covering 400/401/403/404/409/429/500 HTTP statuses
+- **Session State Error Code**: New `INVALID_SESSION_STATE` (409 Conflict) for state machine violations
+- **Rate Limit Code**: New `TOO_MANY_REQUESTS` (429) for distributed rate limiting
+- **Missing Cookie Handler**: `MissingRequestCookieException` handler for `/auth/refresh` cookie validation
+- **API Response Completeness**:
+  - `MatchStatusResponse`: IDLE/MATCHING/MATCHED 3-state enum (was: only WAITING/MATCHED)
+  - `MatchResultResponse`: Added `otherWantAgain` field (show partner's rematch intent)
+  - `FriendCallResponse`: Added `isOfferer` field (explicitly indicate WebRTC role)
+- **Friend Call Validation**: Prevent ghost sessions — cannot call user already in IN_PROGRESS state
+
+### Changed
+- **JwtAuthenticationFilter.java**:
+  - Removed custom `ErrorResponse` record
+  - Integrated with `ObjectMapper` and `ApiResponse.error()` for format consistency with `GlobalExceptionHandler`
+  - All JWT errors now follow unified ApiResponse format
+- **AuthRateLimitInterceptor.java**:
+  - Replaced buggy Spring Data Redis 3.5.7 `pExpire()` with Lua script (INCR+EXPIRE atomic)
+  - Fixed TTL==-1 recovery: re-apply EXPIRE if key has no TTL (prevents permanent rate limit after Redis restart)
+- **CallService.java**:
+  - `endCall()`: Changed already-ended error from 403 `ACCESS_DENIED` to 409 `INVALID_SESSION_STATE`
+  - `expressCallAgain()`: Changed non-IN_PROGRESS error from 403 to 409 `INVALID_SESSION_STATE`
+  - `requestCallToFriend()`: Added check to prevent calling user already in session (returns 409 `ALREADY_IN_CALL`)
+- **ErrorCode.java**:
+  - New codes: `TOO_MANY_REQUESTS` (429), `INVALID_SESSION_STATE` (409), `ALREADY_IN_CALL` (409)
+  - Reorganized for clarity: 400 (5 codes), 401 (6), 403 (3), 404 (7), 409 (8), 429 (1), 500 (6)
+- **MatchService.java**:
+  - `getMatchStatus()`: Returns IDLE (not in queue), MATCHING (waiting in queue), or MATCHED (has active session)
+  - `getMatchResult()`: Calculates and returns both users' wantAgain flags
+- **SecurityHeadersFilter.java**:
+  - Relaxed CSP for Swagger paths (`/swagger-ui/**`, `/v3/api-docs/**`) to allow JS/CSS loading
+  - Other paths enforce strict `default-src 'none'`
+
+### Fixed
+- **500 → 401**: Missing refresh token cookie now returns 401 INVALID_TOKEN instead of 500 INTERNAL_ERROR
+- **403 → 409**: Session state violations now correctly return 409 INVALID_SESSION_STATE (RFC 7231 compliant)
+- **Lua Script Bug**: Resolved Spring Data Redis 3.5.7 `pExpire()` StackOverflowError by implementing atomic Lua script
+- **Rate Limit Recovery**: Fixed permanent rate limit after Redis restart via TTL check in Lua script
+- **API Completeness**: IDLE state, otherWantAgain, isOfferer, friend-call-validation now properly exposed
+
+### Security
+- **HTTP Status Correctness**: All error codes now map to RFC 7231-compliant statuses
+- **Exception Handler Coverage**: 9 handlers cover all exception paths (custom, validation, framework)
+- **Rate Limit Stability**: Lua script fixes prevent false positives after infrastructure restarts
+
+### Testing
+- ✅ All 107 unit tests pass (0 failed, 100% pass rate)
+- ✅ CallServiceTest updated for new exception types (ForbiddenException → BusinessException)
+- ✅ Exception paths verified: all 25 error codes tested
+- ✅ Rate limiting Lua script verified with Redis restart scenarios
+
+### Documentation
+- **docs/04-report/exception.report.md**: Complete PDCA report (12-day feature, 4 phases, lessons learned)
+- **docs/03-analysis/connecto-0316.analysis.md**: 92% design match analysis with documented gaps
+- **CLAUDE.md**: Sections 5, 9 reference GlobalExceptionHandler and API response format
+
+### Breaking Changes
+- None — `ApiResponse` uses `@JsonInclude(NON_NULL)` for backward compatibility
+- HTTP 403 → 409 migration: Clients checking for `INVALID_SESSION_STATE` code instead of status now properly distinguish state errors
+
+---
+
 ## [2026-03-13] - Security Hardening Complete
 
 ### Added

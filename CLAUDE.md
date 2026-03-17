@@ -155,7 +155,7 @@ com.pm.connecto/
 │   ├── domain/DeviceToken.java           # userId, token, platform, createdAt
 │   ├── dto/DeviceTokenRequest.java       # { token, platform } — android|ios 검증
 │   ├── repository/DeviceTokenRepository.java
-│   └── service/FcmService.java          # registerToken, deleteToken, @Async sendToUserAsync
+│   └── service/FcmService.java          # registerToken, deleteToken, @Async sendToUserAsync, @Async sendToUserWithDataAsync
 ├── report/
 │   ├── controller/ReportController.java  # POST /reports
 │   ├── domain/Report.java
@@ -235,14 +235,14 @@ HttpOnly=true, Secure=true, SameSite=Strict, Path=/
 | POST | `/match/start` | 매칭 대기열 진입 | O |
 | POST | `/match/cancel` | 대기 취소 | O |
 | GET | `/match/status` | 매칭 상태 (IDLE/MATCHING/MATCHED) | O |
-| GET | `/match/result/{sessionId}` | 통화 종료 후 상대 프로필 조회 (권한 필수) | O |
+| GET | `/match/result/{sessionId}` | 통화 종료 후 상대 프로필 조회 → `{ profile, wantAgain, otherWantAgain }` (권한 필수) | O |
 
 ### 5.7 통화 (`/call`)
 | 메서드 | 경로 | 설명 | 인증 |
 |--------|------|------|------|
 | POST | `/call/end` | 통화 종료 → 세션 ENDED | O |
 | POST | `/call/again` | 재연결 의사 표현 (wantAgain bool) | O |
-| POST | `/call/request/{friendId}` | 친구에게 통화 요청 → 즉시 IN_PROGRESS 세션 생성 | O |
+| POST | `/call/request/{friendId}` | 친구에게 통화 요청 → 즉시 IN_PROGRESS 세션 생성 / 상대방 통화 중 시 409 | O |
 
 ### 5.8 친구 (`/friends`)
 | 메서드 | 경로 | 설명 | 인증 |
@@ -403,13 +403,21 @@ LocalDateTime createdAt
 | on | `match:start` | 매칭 요청 |
 | on | `match:cancel` | 매칭 취소 |
 | emit → client | `match:success` | 매칭 완료 → `{ sessionId, webrtcChannelId, isOfferer }` |
-| emit → client | `match:error` | 매칭 실패 → `{ message }` |
-| on | `webrtc:join` | 통화 채널 입장 |
+| emit → client | `match:error` | 매칭 실패 → `{ code, message }` |
+| emit → client | `match:cancelled` | 매칭 취소 완료 → `{ success: true }` |
+| on | `webrtc:join` | 통화 채널 입장 → `{ channelId }` |
 | on | `webrtc:offer` | WebRTC Offer SDP |
 | on | `webrtc:answer` | WebRTC Answer SDP |
 | on | `webrtc:ice` | ICE Candidate |
+| emit → client | `webrtc:error` | 채널 인가 실패 → `{ message }` |
+| emit → client | `call:ended` | 상대방이 통화 종료 → `{ sessionId }` |
+| emit → client | `call:rematch` | 양측 재통화 동의 시 새 세션 → `{ sessionId, webrtcChannelId, isOfferer }` |
+| emit → client | `call:incoming` | 친구 통화 요청 수신 → `{ sessionId, webrtcChannelId, callerId, callerNickname }` |
+| emit → client | `friend:status-change` | 친구 온라인/오프라인 변경 → `{ friendId, isOnline }` |
 
-**클라이언트 인증:** Socket.IO `auth.token` 필드에서 JWT 추출
+**클라이언트 인증:** `Authorization: Bearer <token>` 헤더 또는 `?token=` URL 파라미터로 JWT 전송 (netty-socketio는 `socket.auth` 미지원)
+
+**`emitToUser()` 패턴:** `MatchSocketHandler.emitToUser(userId, eventName, data)` — CallService 등 외부 서비스가 userId 기반으로 소켓 이벤트를 전송할 때 사용. MatchSocketHandler가 `clientUserIdMap`을 관리하므로 다른 서비스는 이 메서드를 통해 emit.
 
 ---
 
@@ -498,13 +506,13 @@ bash run-local.sh
 
 ## 11. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-15 (에뮬레이터 테스트 버그 수정 — DB전환, Redis 버그, Socket.IO 인증, 매칭 이중 진입, FCM /call/again)
+> **마지막 업데이트:** 2026-03-17 (매칭 상태 IDLE/MATCHING 구분, otherWantAgain 응답, 친구 통화 중 409, isOfferer 명시)
 >
-> **API 테스트 결과 (2026-03-10):** 회원가입/로그인/프로필/언어/관심사/친구/신고/매칭/로그아웃 정상 동작 확인
+> **API 테스트 결과 (2026-03-16):** 전체 API Zero Script QA 완료 — 회원가입/로그인/프로필/언어/관심사/친구/신고/매칭/TURN/로그아웃 정상 동작 확인
 > **단위 테스트 현황 (2026-03-11):** AuthService, UserService, ProfileService, LanguageService, InterestService, FriendService, CallService, ReportService, AuthController(통합) — 97개 전체 통과
-> **수정 사항:** `Interest.category` → `Interest.tag` (실제 구현 필드명), `GlobalExceptionHandler` RuntimeException 로깅 추가
-> **JwtAuthenticationFilter 개선:** PUBLIC_PATHS 상수화, 토큰 타입 검증 추가
-> **ReportService 개선:** 세션 참여 검증 + 피신고자 실제 상대방 검증 추가
+> **소켓 이벤트 추가 (2026-03-16):** `call:ended`, `call:rematch`, `call:incoming`, `friend:status-change` — MatchSocketHandler.emitToUser() 패턴으로 구현
+> **FCM data payload (2026-03-16):** FcmService.sendToUserWithDataAsync() 추가 — call_rematch 시 백그라운드 딥링크용 data 필드 포함 전송
+> **API 품질 개선 (2026-03-16):** JWT 필터 에러 포맷 ApiResponse 통일, refresh 쿠키 누락 500→401 수정, 세션 상태 오류 403→409 수정
 > **보안 강화 (2026-03-13):** OWASP Top 10 감사 Rev 3 완료. Refresh Token Redis 폐기, Rate Limiting, WebRTC 채널 인가, 스레드 풀 제한, 보안 헤더 5종 추가
 > **에뮬레이터 테스트 버그 수정 (2026-03-15):** 로컬 DB → PostgreSQL 전환, Redis pExpire 버그 Lua 스크립트로 수정, Socket.IO 토큰 추출(헤더+URL param), 매칭 이중 진입 방지, stale 세션 정리 5분, /call/again FCM 알림 추가
 
@@ -517,9 +525,9 @@ bash run-local.sh
 | 프로필 | `POST/GET/PATCH /users/me/profile`, `PATCH /users/me/profile/image`, `GET /profiles/exists` | **2026-03-07 이미지 업로드 구현 완료** — AWS S3 |
 | 언어 | `POST/GET/PUT/DELETE /users/me/languages` | |
 | 관심사 | `POST/GET/DELETE /users/me/interests` | **2026-03-06 구현 완료** — `GET /users/me` 응답에 포함 |
-| 매칭 | `POST /match/start,cancel`, `GET /match/status,result/{id}` | Redis 필요 (@ConditionalOnProperty) |
+| 매칭 | `POST /match/start,cancel`, `GET /match/status,result/{id}` | Redis 필요 (@ConditionalOnProperty). **2026-03-17 개선** — IDLE/MATCHING/MATCHED 3단계 상태, `result`에 `otherWantAgain` 추가 |
 | 인증 (소셜) | `POST /auth/social-login` | **2026-03-07 Google OAuth ID Token 검증 구현** — User 자동 생성 포함 |
-| 통화 | `POST /call/end`, `POST /call/again`, `POST /call/request/{friendId}` | **2026-03-06 친구 통화 요청 추가** / **2026-03-15 /call/again FCM 알림 추가** (wantAgain=true 시 상대방에게 "재통화 요청" 알림) |
+| 통화 | `POST /call/end`, `POST /call/again`, `POST /call/request/{friendId}` | **2026-03-16 소켓 이벤트 추가** — call:ended(종료 알림), call:rematch(상호 재통화), call:incoming(친구 통화 수신). **2026-03-17 개선** — 친구 통화 중 409, `FriendCallResponse.isOfferer` 추가 |
 | 신고 | `POST /reports` | **2026-03-06 구현 완료** — 자기 신고/중복 신고 방지 |
 | 친구 | `GET /friends`, `GET /friends/requests`, `POST /friends/request`, `PATCH /friends/request/{id}/accept`, `PATCH /friends/request/{id}/reject` | **2026-03-06 구현 완료** |
 | 스케줄러 | CallSessionScheduler — 5분 초과 자동 종료 + 대기열 만료 정리 | **2026-03-06 구현 확인 완료** |
@@ -564,7 +572,7 @@ FIREBASE_SERVICE_ACCOUNT_JSON
 | `notification/config/FcmConfig.java` | Firebase Admin SDK 초기화. `FIREBASE_SERVICE_ACCOUNT_JSON` 미설정 시 null 반환 → FCM 비활성 |
 | `notification/domain/DeviceToken.java` | FCM 토큰 엔티티 (user_id 인덱스, token unique 인덱스) |
 | `notification/repository/DeviceTokenRepository.java` | findAllByUserId, findByToken, deleteByUserIdAndToken, deleteAllByUserId |
-| `notification/service/FcmService.java` | 토큰 등록/삭제 + `@Async` FCM 전송 + UNREGISTERED 토큰 자동 삭제. `@Autowired(required=false)` 로 FirebaseApp null 처리 |
+| `notification/service/FcmService.java` | 토큰 등록/삭제 + `@Async` FCM 전송 + UNREGISTERED 토큰 자동 삭제. `@Autowired(required=false)` 로 FirebaseApp null 처리. `sendToUserWithDataAsync()` 추가 — data payload(딥링크용) 포함 전송 |
 | `notification/dto/DeviceTokenRequest.java` | `{ token, platform }` — platform은 "android"\|"ios" 패턴 검증 |
 | `notification/controller/DeviceTokenController.java` | `POST/DELETE /users/me/device-token` |
 | `friend/service/FriendService.java` | sendFriendRequest(), acceptFriendRequest() 완료 후 FCM 비동기 전송 |
@@ -574,9 +582,11 @@ FIREBASE_SERVICE_ACCOUNT_JSON
 **알림 이벤트:**
 | 이벤트 | 트리거 | title | body |
 |--------|--------|-------|------|
-| 친구 요청 | FriendService.sendFriendRequest() | "친구 요청" | "{nickname}님이 친구 요청을 보냈어요" |
+| 친구 요청 | FriendService.sendFriendRequest() | "친구 요청" | "{nickname}님이 친구 신청을 보냈습니다" |
 | 친구 수락 | FriendService.acceptFriendRequest() | "친구 수락" | "{nickname}님이 친구 요청을 수락했어요" |
 | 통화 요청 | CallService.requestCallToFriend() | "통화 요청" | "{nickname}님이 통화를 요청했어요" |
+| 재통화 연결 (data) | CallService.expressCallAgain() — bothWantAgain | "재통화 연결" | "상대방도 다시 통화하고 싶어합니다!" + data:  |
+| 재통화 요청 | CallService.expressCallAgain() | "다시 통화 요청" | "{nickname}님이 다시 통화하고 싶어합니다" |
 
 > FCM 전송 실패는 비즈니스 로직에 영향 없음 (로그만 기록). 로컬 개발 시 FIREBASE_SERVICE_ACCOUNT_JSON 없이 정상 동작.
 
@@ -589,14 +599,26 @@ OWASP Top 10 감사 3회 수행, 17개 전체 이슈 해결 완료. 감사 문�
 | 파일 | 역할 |
 |------|------|
 | `auth/service/AuthService.java` | `generateRefreshToken()` → Redis `rt:{userId}` 저장 (TTL 7일). `refreshAccessToken()` → Redis 검증. `revokeRefreshToken()` → 로그아웃 시 삭제 |
-| `auth/interceptor/AuthRateLimitInterceptor.java` | IP별 Rate Limiting: login/social-login 10회/분, signup 5회/시간. Redis 기반 INCR+EXPIRE. 429 응답 |
+| `auth/interceptor/AuthRateLimitInterceptor.java` | IP별 Rate Limiting: login/social-login 10회/분, signup 5회/시간. Redis 기반 Lua INCR+EXPIRE. 429 응답. **두 에뮬레이터가 서버에서 127.0.0.1로 동일 인식 → 한쪽 초과 시 양쪽 차단됨** |
 | `common/config/WebConfig.java` | `AuthRateLimitInterceptor` 등록 (`/auth/login`, `/auth/signup`, `/auth/social-login`) |
-| `common/filter/SecurityHeadersFilter.java` | 보안 헤더 5종: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP, HSTS |
+| `common/filter/SecurityHeadersFilter.java` | 보안 헤더 5종: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP, HSTS. **Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`)는 CSP 완화 적용 (`default-src 'none'` → `script-src 'self' 'unsafe-inline'` 등)** |
 | `match/handler/MatchSocketHandler.java` | URL query param 토큰 제거(M-02), WebRTC 채널 인가(M-04), raw Thread → ExecutorService(100) + 120s timeout(M-06) |
 | `match/repository/CallSessionRepository.java` | `findByWebrtcChannelIdAndUserId()` 추가 |
 | `common/response/ErrorCode.java` | `TOO_MANY_REQUESTS` (429) 추가 |
 
 > Redis 없는 환경(로컬 개발)에서는 Rate Limiting과 Token Revocation이 자동 비활성화 (`@Autowired(required=false)`).
+
+**Rate Limit 동작 규칙:**
+- 차단 기준: login/social-login 분당 10회, signup 시간당 5회 (IP 기준)
+- 차단 후 동작: 60초(login) / 3600초(signup) 뒤 자동 해제 — **영구 차단 아님**
+- 차단 중 올바른 비밀번호 입력해도 429 반환 (정상 동작)
+- 창 시작: 첫 번째 요청 시점부터 카운트 (마지막 실패 시점 아님)
+- 에뮬레이터 주의: 로컬 환경에서 모든 기기가 127.0.0.1로 인식 → 한 기기에서 초과 시 다른 기기도 차단
+- 수동 해제: `redis-cli DEL rate:login:127.0.0.1` 또는 `rate:login:0:0:0:0:0:0:0:1` (IPv6)
+
+**주의 — Redis 재시작 후 키 TTL 손실 버그 (2026-03-16 수정):**
+- Lua 스크립트는 `c == 1`일 때만 EXPIRE 설정 → Redis 재시작 등으로 키가 TTL 없이 잔존 시 영구 차단 발생
+- 수정: `TTL == -1`인 경우에도 EXPIRE 재설정하도록 Lua 스크립트 개선
 
 ### TURN 자격증명 세부 사항 (2026-03-14)
 
@@ -628,11 +650,41 @@ TURN_URL=      # 예: turn:your-server.com:3478
 | `call/service/CallService.java` | `expressCallAgain()` — `wantAgain=true` 시 상대방에게 FCM 비동기 알림 발송 ("재통화 요청", "{nickname}님이 다시 통화하고 싶어해요") |
 
 **알려진 미해결 이슈:**
-- WebRTC 통화 연결 불안정 (에뮬레이터 환경에서 STUN 경유 — TURN 서버 없음)
-- `GET /webrtc/turn-credentials` API 미구현 (STUN fallback으로 로컬 테스트 가능, 실기기 LTE 환경에서 필요)
+- WebRTC 통화 연결 불안정 (에뮬레이터 환경에서 STUN 경유 — TURN 서버 필요 시 배포 환경에서 설정)
+
+### 버그 수정 및 개선 세부 사항 (2026-03-16)
+
+| 파일 | 수정 내용 |
+|------|----------|
+| `auth/interceptor/AuthRateLimitInterceptor.java` | Rate Limit 영구 차단 버그 수정 — Lua 스크립트에 `TTL == -1` 조건 추가. Redis 재시작 등으로 키에 TTL이 없는 경우에도 EXPIRE 재설정 |
+| `common/filter/SecurityHeadersFilter.java` | Swagger UI 접속 불가 수정 — CSP `default-src 'none'`이 Swagger JS/CSS 로딩 차단. `/swagger-ui/**`, `/v3/api-docs/**` 경로는 CSP 완화 적용 |
+| `auth/filter/JwtAuthenticationFilter.java` | 에러 응답 포맷 통일 — 자체 `ErrorResponse` record 제거, Spring `ObjectMapper` 주입 + `ApiResponse.error()` 사용으로 GlobalExceptionHandler와 포맷 일치 |
+| `common/exception/GlobalExceptionHandler.java` | `MissingRequestCookieException` 핸들러 추가 — `POST /auth/refresh` 쿠키 누락 시 500 → 401 `INVALID_TOKEN` "토큰이 누락되었습니다." |
+| `common/response/ErrorCode.java` | `INVALID_SESSION_STATE` (409 Conflict) 추가 — 세션 상태 불일치 시 사용 (기존 403 ACCESS_DENIED 오용 수정) |
+| `call/service/CallService.java` | ① `endCall()` — 이미 종료된 세션 요청 시 403→409 `INVALID_SESSION_STATE` / ② `expressCallAgain()` — 통화 중 세션 요청 시 403→409 `INVALID_SESSION_STATE` / ③ `call:ended` 소켓 emit 추가 / ④ `call:rematch` 상호 동의 시 새 세션 생성 + 소켓 emit / ⑤ `call:incoming` 친구 통화 요청 소켓 emit 추가 |
+| `match/handler/MatchSocketHandler.java` | `emitToUser(userId, eventName, data)` public 메서드 추가 — 외부 서비스(CallService)가 userId 기반 소켓 이벤트 전송 시 사용. `FriendshipRepository` 주입 + `notifyFriendsStatus()` 추가 — 소켓 connect/disconnect 시 친구 전원에게 `friend:status-change` emit |
+| `friend/service/FriendService.java` | FCM 텍스트 수정 — "친구 요청을 보냈어요" → "친구 신청을 보냈습니다" |
+
+### API 품질 개선 세부 사항 (2026-03-17)
+
+| 파일 | 수정 내용 |
+|------|----------|
+| `match/dto/MatchStatusResponse.java` | IDLE/MATCHING/MATCHED 3단계 구분 — `waiting()` 제거, `idle()` (대기열 없음), `matching()` (대기열 있음) 추가 |
+| `match/service/MatchService.java` | `getMatchStatus()` — 대기열(`isInQueue`) 여부에 따라 MATCHING vs IDLE 반환. 기존 WAITING 단일 상태 → 3단계 분리 |
+| `match/dto/MatchResultResponse.java` | `otherWantAgain` 필드 추가 — `GET /match/result/{id}` 응답에 상대방 재통화 의사 포함 |
+| `match/service/MatchService.java` | `getMatchResult()` — `otherWantAgain` 계산 (user1↔user2 교차 참조) 후 응답에 포함 |
+| `call/service/CallService.java` | `requestCallToFriend()` — 상대방(`friendId`) IN_PROGRESS 세션 존재 시 409 ALREADY_IN_CALL 반환 (유령 세션 생성 방지) |
+| `call/dto/FriendCallResponse.java` | `isOfferer` 필드 추가 — 발신자(caller)는 항상 `true` |
+| `test/CallServiceTest.java` | 예외 타입 업데이트 — `ForbiddenException(ACCESS_DENIED)` → `BusinessException(INVALID_SESSION_STATE)` (2개 케이스) |
 
 ### 백엔드 미구현 항목 ❌
 
-| 항목 | 설명 | 우선순위 |
-|------|------|----------|
-| TURN 서버 자격증명 API | `GET /webrtc/turn-credentials` — Coturn HMAC 자격증명 발급. 로컬/WiFi 테스트는 STUN fallback으로 가능. LTE/방화벽 환경에서 필요 | 배포 전 |
+현재 미구현 항목 없음. 모든 명세 API 구현 완료.
+
+### 알려진 개선 필요 항목 (중간 우선순위)
+
+| 항목 | 내용 | 파일 |
+|------|------|------|
+| 통화 거절 API 없음 | `call:incoming` 수신 후 거절 시 백엔드 처리 없음 (5분 후 스케줄러 자동 정리) | — |
+
+> **2026-03-17 처리 완료:** 매칭 상태 IDLE/MATCHING 구분, `otherWantAgain` 응답 추가, 친구 통화 시 상대방 통화 중 409 체크, `FriendCallResponse.isOfferer` 추가

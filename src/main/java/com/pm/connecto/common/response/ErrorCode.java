@@ -42,6 +42,7 @@ public enum ErrorCode {
 	ALREADY_FRIENDS(HttpStatus.CONFLICT, "ALREADY_FRIENDS", "이미 친구인 사용자입니다."),
 	ALREADY_IN_QUEUE(HttpStatus.CONFLICT, "ALREADY_IN_QUEUE", "이미 매칭 대기열에 있습니다."),
 	ALREADY_IN_CALL(HttpStatus.CONFLICT, "ALREADY_IN_CALL", "이미 통화 중입니다."),
+	INVALID_SESSION_STATE(HttpStatus.CONFLICT, "INVALID_SESSION_STATE", "현재 세션 상태에서 허용되지 않는 요청입니다."),
 	DUPLICATE_REPORT(HttpStatus.CONFLICT, "DUPLICATE_REPORT", "이미 신고한 사용자입니다."),
 
 	// 400 Bad Request (Report)

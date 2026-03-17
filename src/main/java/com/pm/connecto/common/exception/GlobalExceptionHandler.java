@@ -9,6 +9,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestCookieException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -114,6 +115,16 @@ public class GlobalExceptionHandler {
 			.collect(Collectors.joining(", "));
 
 		return ApiResponse.error(ErrorCode.INVALID_INPUT, message);
+	}
+
+	/**
+	 * 필수 쿠키 누락 시 발생 (예: /auth/refresh 호출 시 refreshToken 쿠키 없음)
+	 * MissingRequestCookieException 미처리 시 RuntimeException으로 빠져 500 반환
+	 */
+	@ExceptionHandler(MissingRequestCookieException.class)
+	@ResponseStatus(HttpStatus.UNAUTHORIZED)
+	public ApiResponse<Void> handleMissingRequestCookieException(MissingRequestCookieException e) {
+		return ApiResponse.error(ErrorCode.INVALID_TOKEN, "토큰이 누락되었습니다.");
 	}
 
 	/**

@@ -28,9 +28,11 @@ import jakarta.servlet.http.HttpServletResponse;
 public class AuthRateLimitInterceptor implements HandlerInterceptor {
 
 	// Lua 스크립트로 INCR+EXPIRE 원자 실행 (pExpire 버그 우회)
+	// TTL이 -1(무기한)인 경우에도 EXPIRE를 설정해 영구 차단 방지
 	private static final DefaultRedisScript<Long> RATE_LIMIT_SCRIPT = new DefaultRedisScript<>(
 		"local c = redis.call('INCR', KEYS[1]); " +
-		"if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end; " +
+		"if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) " +
+		"elseif redis.call('TTL', KEYS[1]) == -1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end; " +
 		"return c",
 		Long.class
 	);

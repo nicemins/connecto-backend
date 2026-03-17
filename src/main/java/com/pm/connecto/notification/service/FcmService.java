@@ -1,6 +1,7 @@
 package com.pm.connecto.notification.service;
 
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,6 +83,23 @@ public class FcmService {
 		}
 	}
 
+	// data payload 포함 FCM 전송 (백그라운드 딥링크용)
+	@Async
+	@Transactional
+	public void sendToUserWithDataAsync(Long userId, String title, String body, Map<String, String> data) {
+		if (firebaseApp == null) {
+			log.debug("FCM not configured. Skipping data notification to userId={}", userId);
+			return;
+		}
+
+		List<DeviceToken> tokens = deviceTokenRepository.findAllByUserId(userId);
+		if (tokens.isEmpty()) return;
+
+		for (DeviceToken deviceToken : tokens) {
+			sendMessageWithData(deviceToken, title, body, data);
+		}
+	}
+
 	private void sendMessage(DeviceToken deviceToken, String title, String body) {
 		try {
 			Message message = Message.builder()
@@ -99,6 +117,27 @@ public class FcmService {
 				log.info("Removed expired FCM token for userId={}", deviceToken.getUser().getId());
 			} else {
 				log.warn("FCM send failed for userId={}: {}", deviceToken.getUser().getId(), e.getMessage());
+			}
+		}
+	}
+
+	private void sendMessageWithData(DeviceToken deviceToken, String title, String body, Map<String, String> data) {
+		try {
+			Message.Builder builder = Message.builder()
+				.setToken(deviceToken.getToken())
+				.setNotification(Notification.builder()
+					.setTitle(title)
+					.setBody(body)
+					.build());
+			data.forEach(builder::putData);
+			FirebaseMessaging.getInstance(firebaseApp).send(builder.build());
+			log.debug("FCM with data sent to userId={}", deviceToken.getUser().getId());
+		} catch (FirebaseMessagingException e) {
+			if ("UNREGISTERED".equals(e.getMessagingErrorCode().name())) {
+				deviceTokenRepository.delete(deviceToken);
+				log.info("Removed expired FCM token for userId={}", deviceToken.getUser().getId());
+			} else {
+				log.warn("FCM data send failed for userId={}: {}", deviceToken.getUser().getId(), e.getMessage());
 			}
 		}
 	}

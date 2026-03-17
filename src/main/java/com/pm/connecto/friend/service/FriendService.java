@@ -79,7 +79,7 @@ public class FriendService {
 		Profile receiverProfile = profileRepository.findByUserId(receiverId).orElse(null);
 
 		String senderNickname = senderProfile != null ? senderProfile.getNickname() : "누군가";
-		fcmService.sendToUserAsync(receiverId, "친구 요청", senderNickname + "님이 친구 요청을 보냈어요");
+		fcmService.sendToUserAsync(receiverId, "친구 요청", senderNickname + "님이 친구 신청을 보냈습니다");
 
 		return FriendRequestResponse.from(request, senderProfile, receiverProfile);
 	}

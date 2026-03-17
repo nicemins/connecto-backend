@@ -130,8 +130,9 @@ public class MatchService {
 				boolean inQueue = matchQueueService.isInQueue(userId);
 				if (inQueue) {
 					log.debug("User {} is waiting in queue", userId);
+					return MatchStatusResponse.matching();
 				}
-				return MatchStatusResponse.waiting();
+				return MatchStatusResponse.idle();
 			});
 	}
 
@@ -172,11 +173,15 @@ public class MatchService {
 		boolean wantAgain = userId.equals(user1Id) 
 			? session.getUser1WantAgain() 
 			: session.getUser2WantAgain();
+		boolean otherWantAgain = userId.equals(user1Id)
+			? session.getUser2WantAgain()
+			: session.getUser1WantAgain();
 
 		log.info("User {} retrieved match result for session {}", userId, sessionId);
 		return new MatchResultResponse(
 			ProfileResponse.from(otherProfile),
-			wantAgain
+			wantAgain,
+			otherWantAgain
 		);
 	}
 

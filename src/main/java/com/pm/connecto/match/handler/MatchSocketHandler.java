@@ -20,6 +20,7 @@ import com.corundumstudio.socketio.annotation.OnEvent;
 import com.pm.connecto.auth.jwt.JwtTokenProvider;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.response.ErrorCode;
+import com.pm.connecto.friend.repository.FriendshipRepository;
 import com.pm.connecto.match.domain.CallSession;
 import com.pm.connecto.match.repository.CallSessionRepository;
 import com.pm.connecto.match.service.MatchQueueService;
@@ -48,6 +49,7 @@ public class MatchSocketHandler {
 	private final MatchService matchService;
 	private final MatchQueueService matchQueueService;
 	private final CallSessionRepository callSessionRepository;
+	private final FriendshipRepository friendshipRepository;
 
 	private static final long MAX_WAIT_MS = 120_000L; // 최대 2분 대기
 
@@ -66,7 +68,8 @@ public class MatchSocketHandler {
 		UserRepository userRepository,
 		MatchService matchService,
 		MatchQueueService matchQueueService,
-		CallSessionRepository callSessionRepository
+		CallSessionRepository callSessionRepository,
+		FriendshipRepository friendshipRepository
 	) {
 		this.socketIOServer = socketIOServer;
 		this.jwtTokenProvider = jwtTokenProvider;
@@ -74,6 +77,7 @@ public class MatchSocketHandler {
 		this.matchService = matchService;
 		this.matchQueueService = matchQueueService;
 		this.callSessionRepository = callSessionRepository;
+		this.friendshipRepository = friendshipRepository;
 	}
 
 	@PostConstruct
@@ -147,6 +151,9 @@ public class MatchSocketHandler {
 			client.set("userId", userId);
 
 			log.info("Client {} connected for user {}", client.getSessionId(), userId);
+
+			// 친구들에게 온라인 상태 알림
+			notifyFriendsStatus(userId, true);
 		} catch (Exception e) {
 			log.error("Error during client connection", e);
 			client.disconnect();
@@ -169,6 +176,9 @@ public class MatchSocketHandler {
 			} catch (Exception e) {
 				log.error("Error removing user {} from queue on disconnect", userId, e);
 			}
+
+			// 친구들에게 오프라인 상태 알림
+			notifyFriendsStatus(userId, false);
 		}
 		// channelRoomMap에서 해당 클라이언트 제거
 		channelRoomMap.values().forEach(clients -> clients.remove(client));
@@ -394,6 +404,49 @@ public class MatchSocketHandler {
 			.filter(SocketIOClient::isChannelOpen)
 			.findFirst()
 			.ifPresent(peer -> peer.sendEvent(eventName, data));
+	}
+
+	/**
+	 * 특정 유저에게 소켓 이벤트 emit (userId 기반)
+	 * - CallService 등 외부 서비스에서 소켓 이벤트 전송 시 사용
+	 * - 해당 유저가 연결되어 있지 않으면 무시
+	 */
+	public void emitToUser(Long userId, String eventName, Map<String, Object> data) {
+		clientUserIdMap.entrySet().stream()
+			.filter(entry -> entry.getValue().equals(userId))
+			.findFirst()
+			.ifPresent(entry -> {
+				try {
+					java.util.UUID sessionUuid = java.util.UUID.fromString(entry.getKey());
+					SocketIOClient target = socketIOServer.getClient(sessionUuid);
+					if (target != null && target.isChannelOpen()) {
+						target.sendEvent(eventName, data);
+						log.info("Emitted {} to user {}", eventName, userId);
+					}
+				} catch (Exception e) {
+					log.error("Error emitting {} to user {}", eventName, userId, e);
+				}
+			});
+	}
+
+	/**
+	 * 온라인/오프라인 상태 변경을 친구들에게 알림
+	 * - 소켓에 연결된 친구에게만 emit
+	 */
+	private void notifyFriendsStatus(Long userId, boolean isOnline) {
+		try {
+			friendshipRepository.findAllByUserId(userId).forEach(friendship -> {
+				Long friendId = friendship.getUser1().getId().equals(userId)
+					? friendship.getUser2().getId()
+					: friendship.getUser1().getId();
+				emitToUser(friendId, "friend:status-change", Map.of(
+					"friendId", userId,
+					"isOnline", isOnline
+				));
+			});
+		} catch (Exception e) {
+			log.error("Error notifying friends status for user {}", userId, e);
+		}
 	}
 
 	/**
