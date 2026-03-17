@@ -1,0 +1,43 @@
+version: '3.8'
+
+# 프로덕션 오버라이드
+# 사용법: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  app:
+    # ports 대신 expose (Nginx를 통해서만 외부 접근)
+    ports: !reset []
+    expose:
+      - "8080"
+      - "9092"
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: connecto-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - app
+    networks:
+      - connecto-network
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: connecto-certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # 수동 갱신: docker compose run --rm certbot renew
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done"
+    networks:
+      - connecto-network
+
+volumes:
+  certbot_certs:
+  certbot_www:

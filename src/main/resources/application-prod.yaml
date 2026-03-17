@@ -1,0 +1,75 @@
+# CORS 설정 (프로덕션 환경 - 환경변수로 주입)
+cors:
+  allowed-origins: ${FRONTEND_URL}
+
+# JWT 설정 (환경변수로 주입)
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration: ${JWT_ACCESS_EXPIRATION:3600000}      # 1시간 (기본값)
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}  # 7일 (기본값)
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:connecto}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+
+socketio:
+  host: 0.0.0.0
+  port: 9092
+
+cloud:
+  aws:
+    s3:
+      bucket: ${AWS_S3_BUCKET}
+      region: ${AWS_REGION:ap-northeast-2}
+    credentials:
+      access-key: ${AWS_ACCESS_KEY_ID}
+      secret-key: ${AWS_SECRET_ACCESS_KEY}
+
+google:
+  android-client-id: ${GOOGLE_ANDROID_CLIENT_ID:}
+  web-client-id: ${GOOGLE_WEB_CLIENT_ID:}
+
+firebase:
+  service-account-json: ${FIREBASE_SERVICE_ACCOUNT_JSON:}
+
+turn:
+  secret: ${TURN_SECRET:}
+  url: ${TURN_URL:}
+  stun-url: stun:stun.l.google.com:19302
+
+# Nginx X-Forwarded-Proto 헤더 신뢰 (HTTPS 리다이렉트 루프 방지)
+server:
+  forward-headers-strategy: native
