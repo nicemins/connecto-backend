@@ -22,30 +22,30 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "friendships",
+@Table(name = "blocks",
 	uniqueConstraints = {
-		@UniqueConstraint(name = "uk_friendship", columnNames = {"user1_id", "user2_id"})
+		@UniqueConstraint(name = "uk_block", columnNames = {"blocker_id", "blocked_id"})
 	},
 	indexes = {
-		@Index(name = "idx_friendship_user1", columnList = "user1_id"),
-		@Index(name = "idx_friendship_user2", columnList = "user2_id")
+		@Index(name = "idx_block_blocker", columnList = "blocker_id"),
+		@Index(name = "idx_block_blocked", columnList = "blocked_id")
 	}
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Friendship {
+public class Block {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "user1_id", nullable = false)
-	private User user1;
+	@JoinColumn(name = "blocker_id", nullable = false)
+	private User blocker;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "user2_id", nullable = false)
-	private User user2;
+	@JoinColumn(name = "blocked_id", nullable = false)
+	private User blocked;
 
 	@Column(nullable = false, updatable = false)
 	private LocalDateTime createdAt;
@@ -56,18 +56,8 @@ public class Friendship {
 	}
 
 	@Builder
-	public Friendship(User user1, User user2) {
-		this.user1 = user1;
-		this.user2 = user2;
-	}
-
-	public boolean isMember(Long userId) {
-		return user1.getId().equals(userId) || user2.getId().equals(userId);
-	}
-
-	public User getOtherUser(Long userId) {
-		if (user1.getId().equals(userId)) return user2;
-		if (user2.getId().equals(userId)) return user1;
-		throw new IllegalArgumentException("User is not part of this friendship");
+	public Block(User blocker, User blocked) {
+		this.blocker = blocker;
+		this.blocked = blocked;
 	}
 }

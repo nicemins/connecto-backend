@@ -1,4 +1,4 @@
-package com.pm.connecto.friend.domain;
+package com.pm.connecto.chat.domain;
 
 import java.time.LocalDateTime;
 
@@ -17,23 +17,22 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
-import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "friendships",
+@Table(name = "chat_rooms",
 	uniqueConstraints = {
-		@UniqueConstraint(name = "uk_friendship", columnNames = {"user1_id", "user2_id"})
+		@UniqueConstraint(name = "uk_chat_room", columnNames = {"user1_id", "user2_id"})
 	},
 	indexes = {
-		@Index(name = "idx_friendship_user1", columnList = "user1_id"),
-		@Index(name = "idx_friendship_user2", columnList = "user2_id")
+		@Index(name = "idx_chat_room_user1", columnList = "user1_id"),
+		@Index(name = "idx_chat_room_user2", columnList = "user2_id")
 	}
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Friendship {
+public class ChatRoom {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -50,15 +49,23 @@ public class Friendship {
 	@Column(nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
+	@Column(nullable = false)
+	private LocalDateTime updatedAt;
+
 	@PrePersist
 	protected void onCreate() {
-		createdAt = LocalDateTime.now();
+		createdAt = updatedAt = LocalDateTime.now();
 	}
 
-	@Builder
-	public Friendship(User user1, User user2) {
-		this.user1 = user1;
-		this.user2 = user2;
+	// user1.id < user2.id 순서 정규화 — uk_chat_room 방향성 문제 방지
+	public ChatRoom(User u1, User u2) {
+		if (u1.getId() < u2.getId()) {
+			this.user1 = u1;
+			this.user2 = u2;
+		} else {
+			this.user1 = u2;
+			this.user2 = u1;
+		}
 	}
 
 	public boolean isMember(Long userId) {
@@ -68,6 +75,10 @@ public class Friendship {
 	public User getOtherUser(Long userId) {
 		if (user1.getId().equals(userId)) return user2;
 		if (user2.getId().equals(userId)) return user1;
-		throw new IllegalArgumentException("User is not part of this friendship");
+		throw new IllegalArgumentException("User is not a member of this chat room");
+	}
+
+	public void updateTimestamp(LocalDateTime time) {
+		this.updatedAt = time;
 	}
 }

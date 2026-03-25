@@ -19,6 +19,7 @@ public enum ErrorCode {
 	BLOCKED_USER(HttpStatus.FORBIDDEN, "BLOCKED_USER", "차단된 사용자입니다."),
 	INACTIVE_USER(HttpStatus.FORBIDDEN, "INACTIVE_USER", "비활성 계정입니다."),
 	ACCESS_DENIED(HttpStatus.FORBIDDEN, "ACCESS_DENIED", "접근 권한이 없습니다."),
+	MESSAGE_BLOCKED(HttpStatus.FORBIDDEN, "MESSAGE_BLOCKED", "차단된 사용자에게는 메시지를 보낼 수 없습니다."),
 
 	// 404 Not Found
 	USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다."),
@@ -30,6 +31,9 @@ public enum ErrorCode {
 
 	// 404 Not Found (Friend)
 	FRIEND_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "FRIEND_REQUEST_NOT_FOUND", "친구 요청을 찾을 수 없습니다."),
+	FRIENDSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "FRIENDSHIP_NOT_FOUND", "친구 관계를 찾을 수 없습니다."),
+	BLOCK_NOT_FOUND(HttpStatus.NOT_FOUND, "BLOCK_NOT_FOUND", "차단 관계를 찾을 수 없습니다."),
+	CHAT_ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "CHAT_ROOM_NOT_FOUND", "채팅방을 찾을 수 없습니다."),
 
 	// 409 Conflict
 	DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "DUPLICATE_RESOURCE", "이미 존재하는 리소스입니다."),
@@ -42,6 +46,7 @@ public enum ErrorCode {
 	ALREADY_FRIENDS(HttpStatus.CONFLICT, "ALREADY_FRIENDS", "이미 친구인 사용자입니다."),
 	ALREADY_IN_QUEUE(HttpStatus.CONFLICT, "ALREADY_IN_QUEUE", "이미 매칭 대기열에 있습니다."),
 	ALREADY_IN_CALL(HttpStatus.CONFLICT, "ALREADY_IN_CALL", "이미 통화 중입니다."),
+	ALREADY_BLOCKED(HttpStatus.CONFLICT, "ALREADY_BLOCKED", "이미 차단한 사용자입니다."),
 	INVALID_SESSION_STATE(HttpStatus.CONFLICT, "INVALID_SESSION_STATE", "현재 세션 상태에서 허용되지 않는 요청입니다."),
 	DUPLICATE_REPORT(HttpStatus.CONFLICT, "DUPLICATE_REPORT", "이미 신고한 사용자입니다."),
 

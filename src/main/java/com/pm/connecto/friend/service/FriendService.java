@@ -1,6 +1,9 @@
 package com.pm.connecto.friend.service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,11 +14,15 @@ import com.pm.connecto.common.exception.DuplicateResourceException;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.response.ErrorCode;
+import com.pm.connecto.friend.domain.Block;
 import com.pm.connecto.friend.domain.FriendRequest;
 import com.pm.connecto.friend.domain.FriendRequestStatus;
 import com.pm.connecto.friend.domain.Friendship;
+import com.pm.connecto.friend.dto.BlockedUserResponse;
+import com.pm.connecto.friend.dto.FriendCheckResponse;
 import com.pm.connecto.friend.dto.FriendRequestResponse;
 import com.pm.connecto.friend.dto.FriendResponse;
+import com.pm.connecto.friend.repository.BlockRepository;
 import com.pm.connecto.friend.repository.FriendRequestRepository;
 import com.pm.connecto.friend.repository.FriendshipRepository;
 import com.pm.connecto.notification.service.FcmService;
@@ -31,6 +38,7 @@ public class FriendService {
 
 	private final FriendRequestRepository friendRequestRepository;
 	private final FriendshipRepository friendshipRepository;
+	private final BlockRepository blockRepository;
 	private final UserRepository userRepository;
 	private final ProfileRepository profileRepository;
 	private final FcmService fcmService;
@@ -38,12 +46,14 @@ public class FriendService {
 	public FriendService(
 		FriendRequestRepository friendRequestRepository,
 		FriendshipRepository friendshipRepository,
+		BlockRepository blockRepository,
 		UserRepository userRepository,
 		ProfileRepository profileRepository,
 		FcmService fcmService
 	) {
 		this.friendRequestRepository = friendRequestRepository;
 		this.friendshipRepository = friendshipRepository;
+		this.blockRepository = blockRepository;
 		this.userRepository = userRepository;
 		this.profileRepository = profileRepository;
 		this.fcmService = fcmService;
@@ -62,6 +72,10 @@ public class FriendService {
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
 		User receiver = userRepository.findActiveById(receiverId)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
+
+		if (blockRepository.existsBlockBetween(senderId, receiverId)) {
+			throw new ForbiddenException(ErrorCode.BLOCKED_USER);
+		}
 
 		if (friendRequestRepository.existsActiveRequestBetween(senderId, receiverId)) {
 			throw new DuplicateResourceException(ErrorCode.DUPLICATE_FRIEND_REQUEST);
@@ -171,5 +185,92 @@ public class FriendService {
 	@Transactional(readOnly = true)
 	public boolean areFriends(Long userId1, Long userId2) {
 		return friendshipRepository.existsBetween(userId1, userId2);
+	}
+
+	/**
+	 * 친구 삭제
+	 */
+	@Transactional
+	public void deleteFriend(Long userId, Long friendshipId) {
+		Friendship friendship = friendshipRepository.findById(friendshipId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.FRIENDSHIP_NOT_FOUND));
+		if (!friendship.isMember(userId)) {
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+		}
+		friendshipRepository.delete(friendship);
+		log.info("Friendship {} deleted by user {}", friendshipId, userId);
+	}
+
+	/**
+	 * 친구 차단 — Friendship 삭제 + Block 생성
+	 */
+	@Transactional
+	public void blockFriend(Long userId, Long friendshipId) {
+		Friendship friendship = friendshipRepository.findById(friendshipId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.FRIENDSHIP_NOT_FOUND));
+		if (!friendship.isMember(userId)) {
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+		}
+		Long targetId = friendship.getOtherUser(userId).getId();
+
+		if (blockRepository.existsByBlockerIdAndBlockedId(userId, targetId)) {
+			throw new DuplicateResourceException(ErrorCode.ALREADY_BLOCKED);
+		}
+
+		friendshipRepository.delete(friendship);
+
+		User blocker = userRepository.getReferenceById(userId);
+		User blocked = userRepository.getReferenceById(targetId);
+		blockRepository.save(Block.builder().blocker(blocker).blocked(blocked).build());
+		log.info("User {} blocked user {}", userId, targetId);
+	}
+
+	/**
+	 * 내 차단 목록 조회
+	 */
+	@Transactional(readOnly = true)
+	public List<BlockedUserResponse> getBlockList(Long userId) {
+		List<Block> blocks = blockRepository.findAllByBlockerIdWithBlocked(userId);
+		if (blocks.isEmpty()) return List.of();
+
+		List<Long> blockedUserIds = blocks.stream().map(b -> b.getBlocked().getId()).toList();
+		Map<Long, Profile> profileByUserId = profileRepository.findByUserIdIn(blockedUserIds).stream()
+			.collect(Collectors.toMap(p -> p.getUser().getId(), p -> p));
+
+		return blocks.stream().map(block -> {
+			Long blockedUserId = block.getBlocked().getId();
+			Profile profile = profileByUserId.get(blockedUserId);
+			return new BlockedUserResponse(
+				blockedUserId,
+				profile != null ? profile.getNickname() : null,
+				profile != null ? profile.getProfileImageUrl() : null,
+				block.getCreatedAt()
+			);
+		}).toList();
+	}
+
+	/**
+	 * 차단 해제
+	 */
+	@Transactional
+	public void unblockUser(Long blockerId, Long blockedUserId) {
+		Block block = blockRepository.findByBlockerIdAndBlockedId(blockerId, blockedUserId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.BLOCK_NOT_FOUND));
+		blockRepository.delete(block);
+		log.info("User {} unblocked user {}", blockerId, blockedUserId);
+	}
+
+	/**
+	 * 친구/차단 여부 확인
+	 */
+	@Transactional(readOnly = true)
+	public FriendCheckResponse checkFriend(Long userId, Long targetUserId) {
+		Optional<Friendship> friendship = friendshipRepository.findBetween(userId, targetUserId);
+		boolean isBlocked = blockRepository.existsByBlockerIdAndBlockedId(userId, targetUserId);
+		return FriendCheckResponse.of(
+			friendship.isPresent(),
+			friendship.map(Friendship::getId).orElse(null),
+			isBlocked
+		);
 	}
 }

@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestCookieException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -138,12 +141,41 @@ public class GlobalExceptionHandler {
 	}
 
 	/**
+	 * JSON 파싱 실패 (잘못된 인코딩, 형식 오류 등)
+	 * 미처리 시 500 반환 → 400으로 교정
+	 */
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	@ResponseStatus(HttpStatus.BAD_REQUEST)
+	public ApiResponse<Void> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+		log.warn("HTTP message not readable: {}", e.getMessage());
+		return ApiResponse.error(ErrorCode.INVALID_INPUT, "요청 본문을 읽을 수 없습니다.");
+	}
+
+	/**
 	 * 파일 크기 초과 (5MB)
 	 */
 	@ExceptionHandler(MaxUploadSizeExceededException.class)
 	@ResponseStatus(HttpStatus.BAD_REQUEST)
 	public ApiResponse<Void> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
 		return ApiResponse.error(ErrorCode.FILE_SIZE_EXCEEDED, ErrorCode.FILE_SIZE_EXCEEDED.getMessage());
+	}
+
+	/**
+	 * 지원하지 않는 HTTP 메서드 (405)
+	 */
+	@ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+	@ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+	public ApiResponse<Void> handleHttpRequestMethodNotSupportedException(HttpRequestMethodNotSupportedException e) {
+		return ApiResponse.error(ErrorCode.INVALID_INPUT, "지원하지 않는 HTTP 메서드입니다: " + e.getMethod());
+	}
+
+	/**
+	 * 지원하지 않는 미디어 타입 (415)
+	 */
+	@ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+	@ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+	public ApiResponse<Void> handleHttpMediaTypeNotSupportedException(HttpMediaTypeNotSupportedException e) {
+		return ApiResponse.error(ErrorCode.INVALID_INPUT, "지원하지 않는 미디어 타입입니다: " + e.getContentType());
 	}
 
 	/**

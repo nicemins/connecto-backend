@@ -1,5 +1,6 @@
 package com.pm.connecto.match.service;
 
+import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import com.pm.connecto.common.exception.DuplicateResourceException;
 import com.pm.connecto.common.exception.LockAcquisitionException;
 import com.pm.connecto.common.response.ErrorCode;
+import com.pm.connecto.friend.repository.BlockRepository;
 
 import jakarta.annotation.PostConstruct;
 
@@ -40,11 +42,14 @@ public class MatchQueueService {
 
 	private final RedisTemplate<String, String> redisTemplate;
 	private final RedissonClient redissonClient;
+	private final BlockRepository blockRepository;
 	private DefaultRedisScript<Long> atomicMatchScript;
 
-	public MatchQueueService(RedisTemplate<String, String> redisTemplate, RedissonClient redissonClient) {
+	public MatchQueueService(RedisTemplate<String, String> redisTemplate, RedissonClient redissonClient,
+		BlockRepository blockRepository) {
 		this.redisTemplate = redisTemplate;
 		this.redissonClient = redissonClient;
+		this.blockRepository = blockRepository;
 	}
 
 	@PostConstruct
@@ -179,6 +184,10 @@ public class MatchQueueService {
 						// 이미 대기열에서 제거된 경우
 						return null;
 					}
+
+					// 차단 관계 일괄 조회 — 락 내부에서 N번 쿼리 방지
+					Set<Long> blockedUsers = new HashSet<>(blockRepository.findBlockedIdsByBlockerId(userId));
+					blockedUsers.addAll(blockRepository.findBlockerIdsByBlockedId(userId));
 					
 					// 가장 오래된 사용자부터 순회
 					for (ZSetOperations.TypedTuple<String> tuple : queueMembers) {
@@ -192,6 +201,11 @@ public class MatchQueueService {
 						
 						// 자신은 제외
 						if (candidateUserId.equals(userId)) {
+							continue;
+						}
+
+						// 차단 관계 확인 (양방향)
+						if (blockedUsers.contains(candidateUserId)) {
 							continue;
 						}
 

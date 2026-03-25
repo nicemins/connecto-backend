@@ -1,6 +1,7 @@
 package com.pm.connecto.auth.interceptor;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Collections;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +9,10 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pm.connecto.common.response.ApiResponse;
+import com.pm.connecto.common.response.ErrorCode;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -40,6 +45,9 @@ public class AuthRateLimitInterceptor implements HandlerInterceptor {
 	@Autowired(required = false)
 	private RedisTemplate<String, String> redisTemplate;
 
+	@Autowired
+	private ObjectMapper objectMapper;
+
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws IOException {
 		if (redisTemplate == null) {
@@ -65,7 +73,11 @@ public class AuthRateLimitInterceptor implements HandlerInterceptor {
 		if (count != null && count > limit) {
 			response.setStatus(429);
 			response.setContentType("application/json;charset=UTF-8");
-			response.getWriter().write("{\"success\":false,\"data\":null,\"message\":\"요청이 너무 많습니다. 잠시 후 다시 시도해주세요.\"}");
+			response.getWriter().write(
+				objectMapper.writeValueAsString(
+					ApiResponse.error(ErrorCode.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+				)
+			);
 			return false;
 		}
 		return true;
