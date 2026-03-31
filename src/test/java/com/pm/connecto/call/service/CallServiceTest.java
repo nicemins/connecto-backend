@@ -180,6 +180,54 @@ class CallServiceTest {
 	}
 
 	@Nested
+	@DisplayName("통화 거절 (rejectCall)")
+	class RejectCallTest {
+
+		@Test
+		@DisplayName("성공: IN_PROGRESS 세션을 거절하면 ENDED 상태가 된다")
+		void 통화_거절_성공() {
+			// given
+			User user1 = mockUser(USER1_ID);
+			User user2 = mockUser(USER2_ID);
+			CallSession session = createInProgressSession(user1, user2);
+			given(callSessionRepository.findByIdAndUserId(SESSION_ID, USER2_ID)).willReturn(Optional.of(session));
+
+			// when
+			callService.rejectCall(SESSION_ID, USER2_ID);
+
+			// then
+			assertThat(session.isEnded()).isTrue();
+		}
+
+		@Test
+		@DisplayName("실패: 세션이 존재하지 않으면 ResourceNotFoundException 발생")
+		void 세션_없음_예외() {
+			// given
+			given(callSessionRepository.findByIdAndUserId(SESSION_ID, USER2_ID)).willReturn(Optional.empty());
+
+			// when & then
+			assertThatThrownBy(() -> callService.rejectCall(SESSION_ID, USER2_ID))
+				.isInstanceOf(ResourceNotFoundException.class)
+				.hasFieldOrPropertyWithValue("errorCode", ErrorCode.SESSION_NOT_FOUND);
+		}
+
+		@Test
+		@DisplayName("실패: 이미 종료된 세션을 거절하려 하면 BusinessException(INVALID_SESSION_STATE) 발생")
+		void 이미_종료된_세션_예외() {
+			// given
+			User user1 = mockUser(USER1_ID);
+			User user2 = mockUser(USER2_ID);
+			CallSession session = createEndedSession(user1, user2);
+			given(callSessionRepository.findByIdAndUserId(SESSION_ID, USER2_ID)).willReturn(Optional.of(session));
+
+			// when & then
+			assertThatThrownBy(() -> callService.rejectCall(SESSION_ID, USER2_ID))
+				.isInstanceOf(BusinessException.class)
+				.hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_SESSION_STATE);
+		}
+	}
+
+	@Nested
 	@DisplayName("친구 통화 요청 (requestCallToFriend)")
 	class RequestCallToFriendTest {
 

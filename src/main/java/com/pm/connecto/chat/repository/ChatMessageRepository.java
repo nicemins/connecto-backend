@@ -27,4 +27,21 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 	@Query("SELECT m.room.id, CASE WHEN m.messageType = 'IMAGE' THEN '사진' ELSE m.content END FROM ChatMessage m WHERE m.id IN " +
 		"(SELECT MAX(m2.id) FROM ChatMessage m2 WHERE m2.room.id IN :roomIds GROUP BY m2.room.id)")
 	List<Object[]> findLatestMessageContentByRoomIds(@Param("roomIds") Collection<Long> roomIds);
+
+	// unreadCount: lastReadMessageId 이후 상대방 메시지 수
+	@Query("SELECT COUNT(m) FROM ChatMessage m WHERE m.room.id = :roomId " +
+		"AND m.sender.id != :myUserId AND m.id > :lastReadMessageId")
+	int countUnread(
+		@Param("roomId") Long roomId,
+		@Param("myUserId") Long myUserId,
+		@Param("lastReadMessageId") Long lastReadMessageId
+	);
+
+	// lastReadMessageId = null (한 번도 읽지 않은 경우) — 전체 상대방 메시지 수
+	@Query("SELECT COUNT(m) FROM ChatMessage m WHERE m.room.id = :roomId AND m.sender.id != :myUserId")
+	int countAllUnread(@Param("roomId") Long roomId, @Param("myUserId") Long myUserId);
+
+	// 룸의 최신 메시지 ID 조회 (읽음 처리 시 사용)
+	@Query("SELECT MAX(m.id) FROM ChatMessage m WHERE m.room.id = :roomId")
+	Optional<Long> findMaxIdByRoomId(@Param("roomId") Long roomId);
 }

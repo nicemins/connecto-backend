@@ -182,6 +182,35 @@ public class CallService {
 	}
 
 	/**
+	 * 통화 거절
+	 * - IN_PROGRESS 세션만 거절 가능
+	 * - 발신자에게 call:rejected 소켓 이벤트 전송
+	 */
+	@Transactional
+	public void rejectCall(Long sessionId, Long userId) {
+		CallSession session = callSessionRepository.findByIdAndUserId(sessionId, userId)
+			.orElseThrow(() -> {
+				log.warn("Session {} not found or user {} not authorized", sessionId, userId);
+				return new ResourceNotFoundException(ErrorCode.SESSION_NOT_FOUND);
+			});
+
+		if (!session.isInProgress()) {
+			log.warn("User {} attempted to reject non-in-progress session {}", userId, sessionId);
+			throw new BusinessException(ErrorCode.INVALID_SESSION_STATE);
+		}
+
+		session.end();
+
+		if (matchSocketHandler != null) {
+			User otherUser = session.getOtherUser(userId);
+			matchSocketHandler.emitToUser(otherUser.getId(), "call:rejected",
+				Map.of("sessionId", sessionId));
+		}
+
+		log.info("Call rejected: Session {}, by user {}", sessionId, userId);
+	}
+
+	/**
 	 * 친구에게 통화 요청
 	 * - 친구 관계가 있어야만 요청 가능
 	 * - CallSession을 즉시 IN_PROGRESS로 생성 (webrtcChannelId 발급)

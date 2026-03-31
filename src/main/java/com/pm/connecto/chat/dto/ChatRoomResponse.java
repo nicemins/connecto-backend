@@ -8,5 +8,6 @@ public record ChatRoomResponse(
 	String friendNickname,
 	String friendProfileImageUrl,
 	String lastMessage,
+	int unreadCount,
 	LocalDateTime updatedAt
 ) {}

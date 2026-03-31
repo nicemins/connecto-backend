@@ -79,7 +79,7 @@ com.pm.connecto/
 │   ├── jwt/JwtTokenProvider.java
 │   └── service/AuthService.java          # authenticate, generateToken, refreshAccessToken, socialLogin
 ├── call/
-│   ├── controller/CallController.java    # POST /call/end, /call/again, /call/request/{friendId}
+│   ├── controller/CallController.java    # POST /call/end, /call/again, /call/request/{friendId}, /call/reject/{sessionId}
 │   ├── dto/CallEndRequest.java
 │   ├── dto/CallAgainRequest.java
 │   ├── dto/FriendCallResponse.java
@@ -97,16 +97,19 @@ com.pm.connecto/
 │   ├── service/S3Service.java            # S3 upload / delete / extractKey
 │   └── socket/SocketAuthUtil.java        # Socket.IO JWT 추출 공통 유틸 (ChatSocketHandler/MatchSocketHandler 공유)
 ├── chat/
-│   ├── controller/ChatController.java    # POST/GET /chat/rooms, GET /chat/rooms/{roomId}/messages, POST /chat/rooms/{roomId}/messages/image
+│   ├── controller/ChatController.java    # POST/GET /chat/rooms, GET /chat/rooms/{roomId}/messages, POST /chat/rooms/{roomId}/messages/image, PATCH /read, GET /unread
 │   ├── domain/ChatMessage.java
 │   ├── domain/ChatRoom.java
+│   ├── domain/ChatRoomMember.java        # 읽음 상태 엔티티 (lastReadMessageId per user per room)
 │   ├── domain/MessageType.java           # TEXT, IMAGE
 │   ├── dto/ChatMessagePageResponse.java
 │   ├── dto/ChatMessageResponse.java
 │   ├── dto/ChatRoomCreateRequest.java
 │   ├── dto/ChatRoomResponse.java
-│   ├── handler/ChatSocketHandler.java    # chat:send/chat:typing on / chat:sent+chat:receive(발신자 echo) + chat:receive(수신자) emit + chat:typing(상대방) relay
+│   ├── dto/ReadRequest.java              # { lastMessageId }
+│   ├── handler/ChatSocketHandler.java    # chat:join/leave/send/typing/read on / chat:receive(룸 전체) + chat:typing + chat:read(상대방) emit
 │   ├── repository/ChatMessageRepository.java
+│   ├── repository/ChatRoomMemberRepository.java
 │   ├── repository/ChatRoomRepository.java
 │   └── service/ChatService.java
 ├── friend/
@@ -261,6 +264,7 @@ HttpOnly=true, Secure=true, SameSite=Strict, Path=/
 | POST | `/call/end` | 통화 종료 → 세션 ENDED | O |
 | POST | `/call/again` | 재연결 의사 표현 (wantAgain bool) | O |
 | POST | `/call/request/{friendId}` | 친구에게 통화 요청 → 즉시 IN_PROGRESS 세션 생성 / 상대방 통화 중 시 409 | O |
+| POST | `/call/reject/{sessionId}` | 수신된 통화 거절 → 세션 ENDED, 발신자에게 `call:rejected` emit | O |
 
 ### 5.8 친구 (`/friends`)
 | 메서드 | 경로 | 설명 | 인증 |
@@ -288,11 +292,14 @@ HttpOnly=true, Secure=true, SameSite=Strict, Path=/
 |--------|------|------|------|
 | POST | `/chat/rooms` | 채팅방 생성 (친구 사이에만). 이미 있으면 기존 반환 → 201 | O |
 | GET | `/chat/rooms` | 내 채팅방 목록 (최신 메시지 순) | O |
-| GET | `/chat/rooms/{roomId}/messages?page=0&size=50` | 메시지 히스토리 (최신순 페이징, max 100) | O |
+| GET | `/chat/rooms/{roomId}/messages?page=0&size=50` | 메시지 히스토리 (최신순 페이징, max 100) — 첫 페이지 자동 읽음 처리 | O |
 | POST | `/chat/rooms/{roomId}/messages/image` | 이미지 메시지 전송 (multipart/form-data, 5MB, JPEG/PNG/WEBP) → 201 | O |
+| PATCH | `/chat/rooms/{roomId}/read` | 읽음 처리 — lastReadMessageId 업데이트, 상대방에게 `chat:read` 소켓 emit | O |
+| GET | `/chat/rooms/{roomId}/unread` | 미읽음 카운트 조회 → `{ unreadCount: N }` | O |
 
 **ChatRoomCreateRequest:** `{ "friendId": Long }`
-**ChatRoomResponse:** `{ roomId, friendId, friendNickname, friendProfileImageUrl, lastMessage, updatedAt }`
+**ChatRoomResponse:** `{ roomId, friendId, friendNickname, friendProfileImageUrl, lastMessage, unreadCount, updatedAt }`
+**ReadRequest:** `{ "lastMessageId": Long }` (PATCH /read 바디)
 **ChatMessagePageResponse:** `{ messages: [...], hasNext, page, size }`
 **ChatMessageResponse:** `{ id, senderId, content, imageUrl, messageType, createdAt }` — `messageType`: `"TEXT"` | `"IMAGE"`, `imageUrl`은 IMAGE 타입만 포함, `content`는 IMAGE 타입 시 null
 **이미지 lastMessage:** `"사진"` 고정 문자열
@@ -451,6 +458,18 @@ LocalDateTime createdAt
 // 인덱스: idx_chat_message_room_created (room_id, created_at DESC)
 ```
 
+### ChatRoomMember
+```java
+Long id
+ChatRoom room          // @ManyToOne LAZY
+User user              // @ManyToOne LAZY
+Long lastReadMessageId // nullable — 마지막으로 읽은 메시지 ID (MAX 보존: 이전 값보다 클 때만 업데이트)
+LocalDateTime updatedAt
+// UniqueConstraint: uk_chat_room_member(chat_room_id, user_id)
+// 인덱스: idx_chat_room_member_room_user, idx_chat_room_member_user
+// updateLastRead(Long messageId): messageId > current 일 때만 업데이트
+```
+
 ### MessageType
 ```java
 TEXT   // 텍스트 메시지 (기본값)
@@ -496,14 +515,17 @@ LocalDateTime createdAt
 | emit → client | `call:ended` | 상대방이 통화 종료 → `{ sessionId }` |
 | emit → client | `call:rematch` | 양측 재통화 동의 시 새 세션 → `{ sessionId, webrtcChannelId, isOfferer }` |
 | emit → client | `call:incoming` | 친구 통화 요청 수신 → `{ sessionId, webrtcChannelId, callerId, callerNickname }` |
+| emit → client | `call:rejected` | 수신자가 통화 거절 → `{ sessionId }` |
 | emit → client | `friend:status-change` | 친구 온라인/오프라인 변경 → `{ friendId, isOnline }` |
 
+| on | `chat:join` | 채팅 룸 입장 → `{ roomId: Long }` — socket.join("chat:" + roomId) |
+| on | `chat:leave` | 채팅 룸 퇴장 → `{ roomId: Long }` (선택) |
 | on | `chat:send` | 채팅 메시지 전송 → `{ roomId: Long, content: String }` |
-| emit → 발신자 | `chat:sent` | 전송 완료 ACK → `{ roomId, message: { id, senderId, content, imageUrl, messageType, createdAt } }` |
-| emit → 발신자 | `chat:receive` | 발신자 echo — `{ roomId, message: { id, senderId, content, imageUrl, messageType, createdAt } }` |
-| emit → 수신자 | `chat:receive` | 채팅 메시지 수신 → `{ roomId, message: { id, senderId, content, imageUrl, messageType, createdAt } }` |
+| emit → 룸 전체 | `chat:receive` | 채팅 메시지 수신 → `{ roomId, message: { id, senderId, content, imageUrl, messageType, createdAt } }` — `chat:{roomId}` 룸 브로드캐스트 (발신자 포함, io.in(room) 방식) |
 | on | `chat:typing` | 타이핑 인디케이터 → `{ roomId: Long }` |
 | emit → 상대방 | `chat:typing` | 타이핑 relay → `{ roomId: Long }` (본인 미포함) |
+| on | `chat:read` | 읽음 처리 → `{ roomId: Long }` — 최신 메시지 ID 자동 조회 후 읽음 처리, 상대방에게 `chat:read` emit |
+| emit → 상대방 | `chat:read` | 읽음 알림 → `{ roomId, readerId, lastReadMessageId }` — chat:join/chat:read on / REST GET messages(p0) / REST PATCH /read 시 emit |
 | emit → client | `chat:error` | 채팅 오류 → `{ message }` (인증 실패 / 필드 누락 / 1000자 초과 / 차단 상태) |
 
 **클라이언트 인증:** `Authorization: Bearer <token>` 헤더 또는 `?token=` URL 파라미터로 JWT 전송 (netty-socketio는 `socket.auth` 미지원)
@@ -595,304 +617,57 @@ bash run-local.sh
 
 ---
 
-## 11. 구현 현황 (항상 최신 유지)
+## 11. 구현 현황
 
-> **마지막 업데이트:** 2026-03-25 (chat:typing relay, 친구 온라인 상태 초기화, chat:receive echo, 이미지 메시지 전송, 차단 목록 조회 API 구현 완료)
->
-> **API 테스트 결과 (2026-03-16):** 전체 API Zero Script QA 완료 — 회원가입/로그인/프로필/언어/관심사/친구/신고/매칭/TURN/로그아웃 정상 동작 확인
-> **단위 테스트 현황 (2026-03-11):** AuthService, UserService, ProfileService, LanguageService, InterestService, FriendService, CallService, ReportService, AuthController(통합) — 97개 전체 통과
-> **소켓 이벤트 추가 (2026-03-16):** `call:ended`, `call:rematch`, `call:incoming`, `friend:status-change` — MatchSocketHandler.emitToUser() 패턴으로 구현
-> **FCM data payload (2026-03-16):** FcmService.sendToUserWithDataAsync() 추가 — call_rematch 시 백그라운드 딥링크용 data 필드 포함 전송
-> **API 품질 개선 (2026-03-16):** JWT 필터 에러 포맷 ApiResponse 통일, refresh 쿠키 누락 500→401 수정, 세션 상태 오류 403→409 수정
-> **보안 강화 (2026-03-13):** OWASP Top 10 감사 Rev 3 완료. Refresh Token Redis 폐기, Rate Limiting, WebRTC 채널 인가, 스레드 풀 제한, 보안 헤더 5종 추가
-> **에뮬레이터 테스트 버그 수정 (2026-03-15):** 로컬 DB → PostgreSQL 전환, Redis pExpire 버그 Lua 스크립트로 수정, Socket.IO 토큰 추출(헤더+URL param), 매칭 이중 진입 방지, stale 세션 정리 5분, /call/again FCM 알림 추가
+> **마지막 업데이트:** 2026-03-31 | 상세 변경 이력: `docs/CHANGELOG.md`
 
 ### 백엔드 완료 ✅
 
-| 도메인 | 엔드포인트 | 비고 |
-|--------|-----------|------|
-| 인증 | `POST /auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout` | refreshToken HttpOnly 쿠키 / 로그아웃 시 FCM 토큰 전체 삭제 |
-| 사용자 | `GET/PUT/DELETE /users/me`, `GET /users/exists/email` | |
-| 프로필 | `POST/GET/PATCH /users/me/profile`, `PATCH /users/me/profile/image`, `GET /profiles/exists` | **2026-03-07 이미지 업로드 구현 완료** — AWS S3 |
-| 언어 | `POST/GET/PUT/DELETE /users/me/languages` | |
-| 관심사 | `POST/GET/DELETE /users/me/interests` | **2026-03-06 구현 완료** — `GET /users/me` 응답에 포함 |
-| 매칭 | `POST /match/start,cancel`, `GET /match/status,result/{id}` | Redis 필요 (@ConditionalOnProperty). **2026-03-17 개선** — IDLE/MATCHING/MATCHED 3단계 상태, `result`에 `otherWantAgain` 추가 |
-| 인증 (소셜) | `POST /auth/social-login` | **2026-03-07 Google OAuth ID Token 검증 구현** — User 자동 생성 포함 |
-| 통화 | `POST /call/end`, `POST /call/again`, `POST /call/request/{friendId}` | **2026-03-16 소켓 이벤트 추가** — call:ended(종료 알림), call:rematch(상호 재통화), call:incoming(친구 통화 수신). **2026-03-17 개선** — 친구 통화 중 409, `FriendCallResponse.isOfferer` 추가 |
-| 신고 | `POST /reports` | **2026-03-06 구현 완료** — 자기 신고/중복 신고 방지 |
-| 친구 | `GET /friends`, `GET /friends/requests`, `GET /friends/check`, `POST /friends/request`, `PATCH /friends/request/{id}/accept,reject`, `DELETE /friends/{id}`, `POST /friends/{id}/block` | **2026-03-06 기본 구현** / **2026-03-18 삭제·차단·확인 추가** |
-| 차단 | `GET /users/me/blocks`, `DELETE /users/me/blocks/{blockedUserId}` | **2026-03-18** 차단 해제 / **2026-03-25** 차단 목록 조회 추가 |
-| 채팅 | `POST/GET /chat/rooms`, `GET /chat/rooms/{id}/messages`, `POST /chat/rooms/{id}/messages/image`, Socket `chat:send/chat:typing` | **2026-03-18 구현 완료** — 친구 간 1:1 채팅, 차단 시 전송 불가. **2026-03-25 추가** — `chat:typing` relay, `chat:receive` 발신자 echo, 이미지 메시지 전송 (S3, messageType/imageUrl) |
-| 스케줄러 | CallSessionScheduler — 5분 초과 자동 종료 + 대기열 만료 정리 | **2026-03-06 구현 확인 완료** |
-| 소켓 매칭 | `match:start`, `match:cancel` on / `match:success`, `match:error`, `match:cancelled` emit | |
-| WebRTC 시그널링 | `webrtc:join/offer/answer/ice` 핸들러 + `match:success`에 `isOfferer` 추가 | **2026-03-06 구현 완료** |
-| 푸시 알림 | `POST/DELETE /users/me/device-token` | **2026-03-09 FCM 구현 완료** — 친구 요청/수락/통화 요청 트리거 포함 |
-| TURN 자격증명 | `GET /webrtc/turn-credentials` | **2026-03-14 구현 완료** — HMAC-SHA1 단기 자격증명, TURN 미설정 시 STUN only (SEC-H1 백엔드) |
+| 도메인 | 엔드포인트 |
+|--------|-----------|
+| 인증 | `POST /auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/social-login` |
+| 사용자 | `GET/PUT/DELETE /users/me`, `GET /users/exists/email` |
+| 프로필 | `POST/GET/PATCH /users/me/profile`, `PATCH /users/me/profile/image`, `GET /profiles/exists` |
+| 언어 | `POST/GET/PUT/DELETE /users/me/languages` |
+| 관심사 | `POST/GET/DELETE /users/me/interests` |
+| 매칭 | `POST /match/start,cancel`, `GET /match/status,result/{id}` — Redis 필요 (@ConditionalOnProperty) |
+| 통화 | `POST /call/end`, `POST /call/again`, `POST /call/request/{friendId}`, `POST /call/reject/{sessionId}` |
+| 신고 | `POST /reports` |
+| 친구 | `GET /friends`, `GET /friends/requests`, `GET /friends/check`, `POST /friends/request`, `PATCH /friends/request/{id}/accept,reject`, `DELETE /friends/{id}`, `POST /friends/{id}/block` |
+| 차단 | `GET /users/me/blocks`, `DELETE /users/me/blocks/{blockedUserId}` |
+| 채팅 | `POST/GET /chat/rooms`, `GET /chat/rooms/{id}/messages`, `POST /chat/rooms/{id}/messages/image`, `PATCH /chat/rooms/{id}/read`, `GET /chat/rooms/{id}/unread`, Socket `chat:send/chat:typing/chat:read` |
+| 스케줄러 | CallSessionScheduler — 5분 초과 자동 종료 + 대기열 만료 정리 |
+| 소켓 매칭 | `match:start`, `match:cancel` on / `match:success`, `match:error`, `match:cancelled` emit |
+| WebRTC 시그널링 | `webrtc:join/offer/answer/ice` + `match:success`에 `isOfferer` |
+| 푸시 알림 | `POST/DELETE /users/me/device-token` — FCM, 친구 요청/수락/통화 요청 트리거 |
+| TURN 자격증명 | `GET /webrtc/turn-credentials` — HMAC-SHA1, TURN 미설정 시 STUN only |
 
-### 프로필 이미지 업로드 세부 사항 (2026-03-07)
+**백엔드 미구현 항목 없음.** 모든 명세 API 구현 완료.
 
-| 파일 | 역할 |
-|------|------|
-| `common/config/S3Config.java` | AWS SDK v2 `S3Client` 빈 등록 |
-| `common/service/S3Service.java` | S3 upload / delete / extractKey |
-| `profile/service/ProfileService.updateProfileImage()` | 이미지 업로드 + 이전 이미지 삭제 + DB 업데이트 |
-| `user/controller/UserController` — `PATCH /users/me/profile/image` | multipart/form-data 수신, 5MB 제한, JPEG/PNG/WEBP만 허용 |
+### 알려진 개선 필요 항목
 
-### 소셜 로그인 세부 사항 (2026-03-07)
+현재 알려진 개선 필요 항목 없음.
 
-| 파일 | 역할 |
-|------|------|
-| `user/domain/User.java` | `provider` (기본 "local"), `providerId` (nullable), `password` nullable, `createSocialUser()` 팩토리 |
-| `user/dto/SocialLoginRequest.java` | `{ provider, token }` DTO |
-| `auth/service/AuthService.socialLogin()` | provider 분기 → token 검증 → 유저 조회/자동 생성 |
-| `auth/service/AuthService.verifyGoogleToken()` | `GoogleIdTokenVerifier`로 ID Token 검증 → email 추출 |
-| `user/controller/AuthController` — `POST /auth/social-login` | public 엔드포인트, accessToken + refreshToken 쿠키 반환 |
+### 운영 참고
 
-**Gradle 의존성:** `com.google.api-client:google-api-client:2.2.0`
-> `google-auth-library-oauth2-http`에는 `GoogleIdTokenVerifier`가 없음 — `google-api-client`가 올바른 라이브러리
+**FCM 알림 이벤트:**
+| 이벤트 | title | body |
+|--------|-------|------|
+| 친구 요청 | "친구 요청" | "{nickname}님이 친구 신청을 보냈습니다" |
+| 친구 수락 | "친구 수락" | "{nickname}님이 친구 요청을 수락했어요" |
+| 통화 요청 | "통화 요청" | "{nickname}님이 통화를 요청했어요" |
+| 재통화 요청 | "다시 통화 요청" | "{nickname}님이 다시 통화하고 싶어합니다" |
+| 재통화 연결 (data) | "재통화 연결" | "상대방도 다시 통화하고 싶어합니다!" |
 
-**운영 필수 환경변수:**
-```
-AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET, AWS_REGION
-GOOGLE_ANDROID_CLIENT_ID, GOOGLE_WEB_CLIENT_ID
-FIREBASE_SERVICE_ACCOUNT_JSON
-```
+**Rate Limit (AuthRateLimitInterceptor):**
+- login/social-login: 분당 10회 / signup: 시간당 5회 (IP 기준)
+- 차단 후 60초(login) / 3600초(signup) 자동 해제 — 영구 차단 아님
+- 에뮬레이터 주의: 로컬에서 모든 기기가 127.0.0.1로 인식 → 한 기기 초과 시 다른 기기도 차단
+- 수동 해제: `redis-cli DEL rate:login:127.0.0.1`
 
-### 푸시 알림 세부 사항 (2026-03-09)
-
-| 파일 | 역할 |
-|------|------|
-| `notification/config/FcmConfig.java` | Firebase Admin SDK 초기화. `FIREBASE_SERVICE_ACCOUNT_JSON` 미설정 시 null 반환 → FCM 비활성 |
-| `notification/domain/DeviceToken.java` | FCM 토큰 엔티티 (user_id 인덱스, token unique 인덱스) |
-| `notification/repository/DeviceTokenRepository.java` | findAllByUserId, findByToken, deleteByUserIdAndToken, deleteAllByUserId |
-| `notification/service/FcmService.java` | 토큰 등록/삭제 + `@Async` FCM 전송 + UNREGISTERED 토큰 자동 삭제. `@Autowired(required=false)` 로 FirebaseApp null 처리. `sendToUserWithDataAsync()` 추가 — data payload(딥링크용) 포함 전송 |
-| `notification/dto/DeviceTokenRequest.java` | `{ token, platform }` — platform은 "android"\|"ios" 패턴 검증 |
-| `notification/controller/DeviceTokenController.java` | `POST/DELETE /users/me/device-token` |
-| `friend/service/FriendService.java` | sendFriendRequest(), acceptFriendRequest() 완료 후 FCM 비동기 전송 |
-| `call/service/CallService.java` | requestCallToFriend() 완료 후 FCM 비동기 전송. ProfileRepository + FcmService 추가 주입 |
-| `user/controller/AuthController.java` | logout 시 fcmService.deleteAllTokens() 연동. UserContext 추가 주입 |
-
-**알림 이벤트:**
-| 이벤트 | 트리거 | title | body |
-|--------|--------|-------|------|
-| 친구 요청 | FriendService.sendFriendRequest() | "친구 요청" | "{nickname}님이 친구 신청을 보냈습니다" |
-| 친구 수락 | FriendService.acceptFriendRequest() | "친구 수락" | "{nickname}님이 친구 요청을 수락했어요" |
-| 통화 요청 | CallService.requestCallToFriend() | "통화 요청" | "{nickname}님이 통화를 요청했어요" |
-| 재통화 연결 (data) | CallService.expressCallAgain() — bothWantAgain | "재통화 연결" | "상대방도 다시 통화하고 싶어합니다!" + data:  |
-| 재통화 요청 | CallService.expressCallAgain() | "다시 통화 요청" | "{nickname}님이 다시 통화하고 싶어합니다" |
-
-> FCM 전송 실패는 비즈니스 로직에 영향 없음 (로그만 기록). 로컬 개발 시 FIREBASE_SERVICE_ACCOUNT_JSON 없이 정상 동작.
-
-### 보안 강화 세부 사항 (2026-03-13)
-
-OWASP Top 10 감사 3회 수행, 17개 전체 이슈 해결 완료. 감사 문서: `docs/02-design/security-spec.md`
-
-**Rev 3 (2026-03-13) 수정 내역:**
-
-| 파일 | 역할 |
-|------|------|
-| `auth/service/AuthService.java` | `generateRefreshToken()` → Redis `rt:{userId}` 저장 (TTL 7일). `refreshAccessToken()` → Redis 검증. `revokeRefreshToken()` → 로그아웃 시 삭제 |
-| `auth/interceptor/AuthRateLimitInterceptor.java` | IP별 Rate Limiting: login/social-login 10회/분, signup 5회/시간. Redis 기반 Lua INCR+EXPIRE. 429 응답. **두 에뮬레이터가 서버에서 127.0.0.1로 동일 인식 → 한쪽 초과 시 양쪽 차단됨** |
-| `common/config/WebConfig.java` | `AuthRateLimitInterceptor` 등록 (`/auth/login`, `/auth/signup`, `/auth/social-login`) |
-| `common/filter/SecurityHeadersFilter.java` | 보안 헤더 5종: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP, HSTS. **Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`)는 CSP 완화 적용 (`default-src 'none'` → `script-src 'self' 'unsafe-inline'` 등)** |
-| `match/handler/MatchSocketHandler.java` | URL query param 토큰 제거(M-02), WebRTC 채널 인가(M-04), raw Thread → ExecutorService(100) + 120s timeout(M-06) |
-| `match/repository/CallSessionRepository.java` | `findByWebrtcChannelIdAndUserId()` 추가 |
-| `common/response/ErrorCode.java` | `TOO_MANY_REQUESTS` (429) 추가 |
-
-> Redis 없는 환경(로컬 개발)에서는 Rate Limiting과 Token Revocation이 자동 비활성화 (`@Autowired(required=false)`).
-
-**Rate Limit 동작 규칙:**
-- 차단 기준: login/social-login 분당 10회, signup 시간당 5회 (IP 기준)
-- 차단 후 동작: 60초(login) / 3600초(signup) 뒤 자동 해제 — **영구 차단 아님**
-- 차단 중 올바른 비밀번호 입력해도 429 반환 (정상 동작)
-- 창 시작: 첫 번째 요청 시점부터 카운트 (마지막 실패 시점 아님)
-- 에뮬레이터 주의: 로컬 환경에서 모든 기기가 127.0.0.1로 인식 → 한 기기에서 초과 시 다른 기기도 차단
-- 수동 해제: `redis-cli DEL rate:login:127.0.0.1` 또는 `rate:login:0:0:0:0:0:0:0:1` (IPv6)
-
-**주의 — Redis 재시작 후 키 TTL 손실 버그 (2026-03-16 수정):**
-- Lua 스크립트는 `c == 1`일 때만 EXPIRE 설정 → Redis 재시작 등으로 키가 TTL 없이 잔존 시 영구 차단 발생
-- 수정: `TTL == -1`인 경우에도 EXPIRE 재설정하도록 Lua 스크립트 개선
-
-### TURN 자격증명 세부 사항 (2026-03-14)
-
-| 파일 | 역할 |
-|------|------|
-| `webrtc/controller/TurnCredentialController.java` | `GET /webrtc/turn-credentials` — 인증 필수 |
-| `webrtc/service/TurnCredentialService.java` | HMAC-SHA1 자격증명 생성 (Coturn `--use-auth-secret` 호환), TTL 3600s |
-| `webrtc/dto/TurnCredentialResponse.java` | `{ iceServers: [{ urls, username?, credential? }], ttl }` |
-| `application.yaml` | `turn.secret`, `turn.url`, `turn.stun-url` 설정 추가 |
-
-**환경변수 추가:**
-```
-TURN_SECRET=   # Coturn --static-auth-secret 값 (미설정 시 STUN only)
-TURN_URL=      # 예: turn:your-server.com:3478
-```
-
-> 프론트엔드 연동: `GET /webrtc/turn-credentials` 호출 후 `RTCPeerConnection({ iceServers })` 초기화. `EXPO_PUBLIC_TURN_*` 환경변수 제거 필요 (프론트 SEC-H1).
-
-### 에뮬레이터 테스트 버그 수정 세부 사항 (2026-03-15)
-
-| 파일 | 수정 내용 |
-|------|----------|
-| `src/main/resources/application-dev.yaml` | H2 → PostgreSQL 전환. `ddl-auto: update`, `PostgreSQLDialect`, Redis 비밀번호 추가 |
-| `src/main/resources/application.yaml` | `ddl-auto: create-drop` → `update` |
-| `.env.local` | `DB_PASSWORD` 추가 |
-| `auth/interceptor/AuthRateLimitInterceptor.java` | Spring Data Redis 3.5.7 `pExpire` StackOverflowError 버그 수정 — `redisTemplate.expire()` → Lua 스크립트 `INCR+EXPIRE` 원자 실행으로 대체 |
-| `match/handler/MatchSocketHandler.java` | ① Socket.IO 토큰 추출 개선: `Authorization` 헤더 + `?token=` URL param 둘 다 지원 (netty-socketio는 `socket.auth` 미지원) ② 매칭 이중 진입 방지: REST `/match/start` 후 `match:start` 소켓 이벤트 수신 시 이미 대기열에 있으면 enqueue 건너뛰고 async 매칭만 시작 |
-| `match/service/MatchService.java` | stale IN_PROGRESS 세션 자동 정리 기준 10분 → **5분**으로 단축 |
-| `call/service/CallService.java` | `expressCallAgain()` — `wantAgain=true` 시 상대방에게 FCM 비동기 알림 발송 ("재통화 요청", "{nickname}님이 다시 통화하고 싶어해요") |
-
-**알려진 미해결 이슈:**
-- WebRTC 통화 연결 불안정 (에뮬레이터 환경에서 STUN 경유 — TURN 서버 필요 시 배포 환경에서 설정)
-
-### 버그 수정 및 개선 세부 사항 (2026-03-16)
-
-| 파일 | 수정 내용 |
-|------|----------|
-| `auth/interceptor/AuthRateLimitInterceptor.java` | Rate Limit 영구 차단 버그 수정 — Lua 스크립트에 `TTL == -1` 조건 추가. Redis 재시작 등으로 키에 TTL이 없는 경우에도 EXPIRE 재설정 |
-| `common/filter/SecurityHeadersFilter.java` | Swagger UI 접속 불가 수정 — CSP `default-src 'none'`이 Swagger JS/CSS 로딩 차단. `/swagger-ui/**`, `/v3/api-docs/**` 경로는 CSP 완화 적용 |
-| `auth/filter/JwtAuthenticationFilter.java` | 에러 응답 포맷 통일 — 자체 `ErrorResponse` record 제거, Spring `ObjectMapper` 주입 + `ApiResponse.error()` 사용으로 GlobalExceptionHandler와 포맷 일치 |
-| `common/exception/GlobalExceptionHandler.java` | `MissingRequestCookieException` 핸들러 추가 — `POST /auth/refresh` 쿠키 누락 시 500 → 401 `INVALID_TOKEN` "토큰이 누락되었습니다." |
-| `common/response/ErrorCode.java` | `INVALID_SESSION_STATE` (409 Conflict) 추가 — 세션 상태 불일치 시 사용 (기존 403 ACCESS_DENIED 오용 수정) |
-| `call/service/CallService.java` | ① `endCall()` — 이미 종료된 세션 요청 시 403→409 `INVALID_SESSION_STATE` / ② `expressCallAgain()` — 통화 중 세션 요청 시 403→409 `INVALID_SESSION_STATE` / ③ `call:ended` 소켓 emit 추가 / ④ `call:rematch` 상호 동의 시 새 세션 생성 + 소켓 emit / ⑤ `call:incoming` 친구 통화 요청 소켓 emit 추가 |
-| `match/handler/MatchSocketHandler.java` | `emitToUser(userId, eventName, data)` public 메서드 추가 — 외부 서비스(CallService)가 userId 기반 소켓 이벤트 전송 시 사용. `FriendshipRepository` 주입 + `notifyFriendsStatus()` 추가 — 소켓 connect/disconnect 시 친구 전원에게 `friend:status-change` emit |
-| `friend/service/FriendService.java` | FCM 텍스트 수정 — "친구 요청을 보냈어요" → "친구 신청을 보냈습니다" |
-
-### API 품질 개선 세부 사항 (2026-03-17)
-
-| 파일 | 수정 내용 |
-|------|----------|
-| `match/dto/MatchStatusResponse.java` | IDLE/MATCHING/MATCHED 3단계 구분 — `waiting()` 제거, `idle()` (대기열 없음), `matching()` (대기열 있음) 추가 |
-| `match/service/MatchService.java` | `getMatchStatus()` — 대기열(`isInQueue`) 여부에 따라 MATCHING vs IDLE 반환. 기존 WAITING 단일 상태 → 3단계 분리 |
-| `match/dto/MatchResultResponse.java` | `otherWantAgain` 필드 추가 — `GET /match/result/{id}` 응답에 상대방 재통화 의사 포함 |
-| `match/service/MatchService.java` | `getMatchResult()` — `otherWantAgain` 계산 (user1↔user2 교차 참조) 후 응답에 포함 |
-| `call/service/CallService.java` | `requestCallToFriend()` — 상대방(`friendId`) IN_PROGRESS 세션 존재 시 409 ALREADY_IN_CALL 반환 (유령 세션 생성 방지) |
-| `call/dto/FriendCallResponse.java` | `isOfferer` 필드 추가 — 발신자(caller)는 항상 `true` |
-| `test/CallServiceTest.java` | 예외 타입 업데이트 — `ForbiddenException(ACCESS_DENIED)` → `BusinessException(INVALID_SESSION_STATE)` (2개 케이스) |
-
-### 2026-03-18 추가 구현 세부 사항
-
-| 파일 | 역할 |
-|------|------|
-| `friend/domain/Block.java` | Block 엔티티 (blocker, blocked, uk_block 유니크 제약) |
-| `friend/repository/BlockRepository.java` | existsBlockBetween, findBlockedIdsByBlockerId, findBlockerIdsByBlockedId |
-| `friend/controller/FriendController.java` | `DELETE /{friendshipId}`, `POST /{friendshipId}/block`, `GET /check` 추가 |
-| `friend/service/FriendService.java` | deleteFriend, blockFriend, unblockUser, checkFriend 추가. Friendship.isMember() 활용 |
-| `friend/domain/Friendship.java` | `isMember(Long userId)` 메서드 추가 |
-| `user/controller/UserController.java` | `GET /users/me/blocks`, `DELETE /users/me/blocks/{blockedUserId}` 추가 |
-| `match/service/MatchQueueService.java` | findMatch() 루프 전 차단 목록 일괄 조회 — 분산 락 내 N 쿼리 → 2 쿼리로 개선 |
-| `friend/domain/Block.java` | Block 엔티티 |
-| `friend/repository/BlockRepository.java` | existsBlockBetween, findBlockedIdsByBlockerId, findBlockerIdsByBlockedId |
-| `friend/controller/FriendController.java` | `DELETE /{friendshipId}`, `POST /{friendshipId}/block`, `GET /check` 추가 |
-| `friend/service/FriendService.java` | deleteFriend, blockFriend, unblockUser, checkFriend 추가 |
-| `friend/domain/Friendship.java` | `isMember(Long userId)` 메서드 추가 |
-| `user/controller/UserController.java` | `GET /users/me/blocks`, `DELETE /users/me/blocks/{blockedUserId}` 추가 |
-| `match/service/MatchQueueService.java` | findMatch() 루프 전 차단 목록 일괄 조회 — N+1 → 2 쿼리 개선 |
-| `chat/domain/ChatRoom.java` | ChatRoom 엔티티. 생성자에서 `user1.id < user2.id` 정규화 (uk_chat_room 방향성 문제 방지) |
-| `chat/domain/ChatMessage.java` | ChatMessage 엔티티 (room, sender, content 1000자, 복합 인덱스) |
-| `chat/repository/ChatRoomRepository.java` | findBetween, findAllByUserIdOrderByUpdatedAtDesc (JOIN FETCH) |
-| `chat/repository/ChatMessageRepository.java` | findByRoomIdOrderByCreatedAtDesc (JOIN FETCH sender, N+1 방지), findLatestMessageContentByRoomIds |
-| `chat/service/ChatService.java` | createOrGetRoom → `RoomResult(response, created)` 반환(201/200 구분), DataIntegrityViolationException catch(레이스컨디션 방어). saveMessage → `SavedMessage(messageResponse, senderId, otherUserId)` 반환 (LAZY 접근 완전 제거) |
-| `chat/controller/ChatController.java` | POST /chat/rooms → ResponseEntity로 신규 201 / 기존 200 반환 |
-| `chat/handler/ChatSocketHandler.java` | 발신자 → `chat:sent`, 수신자 → `chat:receive` 분리. 비즈니스/예상외 예외 분리 처리(내부 정보 노출 방지). SocketAuthUtil 사용 |
-| `chat/dto/ChatMessageResponse.java` | `from(ChatMessage, Long senderId)` 오버로드 추가 (LAZY 프록시 접근 방지) |
-| `common/socket/SocketAuthUtil.java` | Socket.IO JWT 추출 공통 유틸 (ChatSocketHandler/MatchSocketHandler 중복 제거) |
-| `profile/repository/ProfileRepository.java` | findByUserIdIn 추가 (채팅방 목록 N+1 방지) |
-| `common/response/ErrorCode.java` | FRIENDSHIP_NOT_FOUND, BLOCK_NOT_FOUND, ALREADY_BLOCKED, CHAT_ROOM_NOT_FOUND, MESSAGE_BLOCKED 추가 |
-
-### 백엔드 미구현 항목 ❌
-
-현재 미구현 항목 없음. 모든 명세 API 구현 완료.
-
-### 예외 처리 표준화 세부 사항 (2026-03-23)
-
-Zero Script QA + Gap Analysis(93%→97%) 수행 후 6개 항목 수정.
-
-| 파일 | 수정 내용 |
-|------|----------|
-| `common/exception/GlobalExceptionHandler.java` | `HttpMessageNotReadableException` (400), `HttpRequestMethodNotSupportedException` (405), `HttpMediaTypeNotSupportedException` (415) 핸들러 추가 — 모든 에러 응답 `ApiResponse` 형식 통일 |
-| `common/exception/LockAcquisitionException.java` | `REDIS_ERROR` → `LOCK_ACQUISITION_FAILED` (전용 에러코드 사용) |
-| `match/service/MatchService.java` | `ForbiddenException(ALREADY_IN_CALL)` → `BusinessException(ALREADY_IN_CALL)` (409 의미 정확) |
-| `report/service/ReportService.java` | `BusinessException(SESSION_NOT_FOUND)` → `ResourceNotFoundException` / `BusinessException(ACCESS_DENIED)` → `ForbiddenException` |
-| `auth/interceptor/AuthRateLimitInterceptor.java` | 429 응답 수동 JSON → `ObjectMapper + ApiResponse.error(TOO_MANY_REQUESTS)` 통일 |
-
-**GlobalExceptionHandler 커버리지 (2026-03-23 기준):**
-| 예외 | HTTP |
-|------|------|
-| `BusinessException` 계열 | ErrorCode 기준 |
-| `HttpMessageNotReadableException` | 400 |
-| `MethodArgumentNotValidException` | 400 |
-| `ConstraintViolationException` | 400 |
-| `HandlerMethodValidationException` | 400 |
-| `MissingServletRequestParameterException` | 400 |
-| `MaxUploadSizeExceededException` | 400 |
-| `IllegalArgumentException` | 400 |
-| `HttpRequestMethodNotSupportedException` | 405 |
-| `HttpMediaTypeNotSupportedException` | 415 |
-| `MissingRequestCookieException` | 401 |
-| `DataAccessException` | 500 |
-| `RuntimeException` (fallback) | 500 |
-
-### 차단 목록 조회 API 세부 사항 (2026-03-25)
-
-| 파일 | 역할 |
-|------|------|
-| `friend/dto/BlockedUserResponse.java` | 신규 — `{ blockedUserId, nickname, profileImageUrl, blockedAt }` |
-| `friend/repository/BlockRepository.java` | `findAllByBlockerIdWithBlocked()` — JOIN FETCH (N+1 방지), 차단일시 역순 정렬 |
-| `friend/service/FriendService.java` | `getBlockList(userId)` — 차단 목록 + 프로필 일괄 조회 |
-| `user/controller/UserController.java` | `GET /users/me/blocks` 추가 |
-
-**동작:** `blocks.blocker_id = userId` 레코드 조회 → `blocked` 유저 id 일괄 추출 → `ProfileRepository.findByUserIdIn()` → DTO 조합
-**주의:** 프로필 미설정 유저는 `nickname` / `profileImageUrl` null 반환
-
-### chat:receive echo 및 이미지 메시지 전송 세부 사항 (2026-03-25)
-
-| 파일 | 역할 |
-|------|------|
-| `chat/domain/MessageType.java` | 신규 — `TEXT`, `IMAGE` enum |
-| `chat/domain/ChatMessage.java` | `messageType` (`VARCHAR(10) DEFAULT 'TEXT'`), `imageUrl` 필드 추가. `content` nullable로 변경 |
-| `chat/dto/ChatMessageResponse.java` | `imageUrl`, `messageType` 필드 추가. `from()` 메서드 업데이트 |
-| `chat/repository/ChatMessageRepository.java` | `findLatestMessageContentByRoomIds` — IMAGE 타입 시 CASE WHEN → `"사진"` 반환 |
-| `chat/service/ChatService.java` | `saveImageMessage()` 추가. `toResponse()` lastMessage IMAGE → `"사진"` 처리 |
-| `chat/controller/ChatController.java` | `POST /chat/rooms/{roomId}/messages/image` 추가. S3 업로드 + `MatchSocketHandler` 소켓 emit (optional) |
-| `chat/handler/ChatSocketHandler.java` | `chat:send` 처리 시 발신자에게 `chat:sent` + `chat:receive` 둘 다 emit (echo) |
-
-**이미지 업로드 흐름:**
-```
-클라이언트 → POST /chat/rooms/{roomId}/messages/image (multipart image)
-  → S3 업로드 (key: chat/{roomId}/{uuid}.ext)
-  → ChatMessage(IMAGE, imageUrl) DB 저장
-  → 소켓: 발신자/수신자 모두 chat:receive emit
-  → 201 ChatMessageResponse 반환
-```
-
-**스키마 마이그레이션 주의:**
-- `chat_messages` 테이블에 `message_type VARCHAR(10) DEFAULT 'TEXT' NOT NULL`, `image_url VARCHAR(1000)` 컬럼 추가
-- `content` 컬럼 NOT NULL → NULL 허용 변경
-- `ddl-auto: update` 로컬 환경 자동 적용. 프로덕션 배포 시 마이그레이션 스크립트 필요
-
-### chat:typing 및 친구 온라인 상태 초기화 세부 사항 (2026-03-25)
-
-| 파일 | 역할 |
-|------|------|
-| `chat/handler/ChatSocketHandler.java` | `chat:typing` 이벤트 등록 + `onChatTyping` 핸들러 추가 — `chatService.getOtherUserId()`로 상대방 확인 후 relay |
-| `chat/service/ChatService.java` | `getOtherUserId(roomId, userId)` 추가 — 멤버십 검증 포함, 상대방 userId 반환 |
-| `match/handler/MatchSocketHandler.java` | `onConnect` 내 `notifyOnlineFriendsToUser(userId, client)` 호출 추가 |
-| `match/handler/MatchSocketHandler.java` | `notifyOnlineFriendsToUser()` — 내 친구 중 `clientUserIdMap`에 있는(= 접속 중인) 친구에게 `friend:status-change { friendId, isOnline: true }` emit |
-
-**동작 원리:**
-- `chat:typing`: 클라이언트 emit → 서버 수신 → 멤버십 확인 → 상대방에게만 relay (본인 미포함, DB에 저장하지 않음)
-- 온라인 상태 초기화: connect 성공 시 기존 `notifyFriendsStatus(userId, true)` 호출 직후 실행. 이미 접속 중인 친구 목록을 신규 접속자에게 일괄 전달 — 프론트 추가 작업 불필요
-
-### 알려진 개선 필요 항목 (중간 우선순위)
-
-| 항목 | 내용 | 파일 |
-|------|------|------|
-| 통화 거절 API 없음 | `call:incoming` 수신 후 거절 시 백엔드 처리 없음 (5분 후 스케줄러 자동 정리) | — |
-
-> **2026-03-17 처리 완료:** 매칭 상태 IDLE/MATCHING 구분, `otherWantAgain` 응답 추가, 친구 통화 시 상대방 통화 중 409 체크, `FriendCallResponse.isOfferer` 추가
-> **2026-03-18 처리 완료:** 친구 삭제/차단/차단해제/확인 API, 1:1 채팅(REST+Socket), 매칭 차단 필터 N+1 개선
-> **2026-03-18 버그 수정:** chat:receive 미수신 — LazyInitializationException (`@Transactional` 종료 후 LAZY 프록시 접근). `SavedMessage`에 DTO 변환 포함으로 해결
-> **2026-03-18 품질 개선:** 채팅 코드 분석 후 7개 이슈 수정 — 예외 메시지 보안(C1), LAZY 접근 완전 제거(C2), N+1 제거(C3), 레이스컨디션 방어(W2/W3), 201/200 분리(W6), 발신자/수신자 이벤트 분리 `chat:sent`/`chat:receive`(W7), JWT 추출 공통화 `SocketAuthUtil`(W1)
-> **프론트 변경 필요 (2026-03-18):** 발신자는 `chat:receive` 대신 `chat:sent` 이벤트 수신. `POST /chat/rooms` 응답 코드 신규 201 / 기존 200으로 분리
-> **2026-03-25 추가:** `chat:typing` 타이핑 인디케이터 relay, 소켓 connect 시 접속 중인 친구 온라인 상태 초기화, `chat:receive` 발신자 echo, 이미지 메시지 전송 API (`POST /chat/rooms/{id}/messages/image`), `MessageType` enum (TEXT/IMAGE), `ChatMessage.messageType/imageUrl` 필드
+**GlobalExceptionHandler 커버리지:**
+400: `HttpMessageNotReadable`, `MethodArgumentNotValid`, `ConstraintViolation`, `HandlerMethodValidation`, `MissingServletRequestParameter`, `MaxUploadSizeExceeded`, `IllegalArgument` /
+401: `MissingRequestCookie` /
+405: `HttpRequestMethodNotSupported` /
+415: `HttpMediaTypeNotSupported` /
+500: `DataAccess`, `RuntimeException` (fallback)

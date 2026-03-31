@@ -21,7 +21,10 @@ import com.pm.connecto.chat.dto.ChatMessagePageResponse;
 import com.pm.connecto.chat.dto.ChatMessageResponse;
 import com.pm.connecto.chat.dto.ChatRoomCreateRequest;
 import com.pm.connecto.chat.dto.ChatRoomResponse;
+import com.pm.connecto.chat.dto.ReadRequest;
 import com.pm.connecto.chat.service.ChatService;
+import com.pm.connecto.chat.service.ChatService.MessagesResult;
+import com.pm.connecto.chat.service.ChatService.ReadResult;
 import com.pm.connecto.chat.service.ChatService.RoomResult;
 import com.pm.connecto.chat.service.ChatService.SavedMessage;
 import com.pm.connecto.common.context.UserContext;
@@ -122,7 +125,7 @@ public class ChatController {
 		return "";
 	}
 
-	@Operation(summary = "메시지 히스토리 조회", description = "채팅방의 메시지 히스토리를 페이징으로 조회합니다. (최신순)")
+	@Operation(summary = "메시지 히스토리 조회", description = "채팅방의 메시지 히스토리를 페이징으로 조회합니다. (최신순, 첫 페이지 자동 읽음 처리)")
 	@ApiResponses({
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "채팅방 멤버 아님"),
@@ -134,6 +137,51 @@ public class ChatController {
 		@RequestParam(defaultValue = "0") int page,
 		@RequestParam(defaultValue = "50") int size
 	) {
-		return ApiResponse.success(chatService.getMessages(userContext.getUserId(), roomId, page, size));
+		Long userId = userContext.getUserId();
+		MessagesResult result = chatService.getMessages(userId, roomId, page, size);
+
+		// 첫 페이지 자동 읽음 처리 → 상대방에게 chat:read emit
+		if (page == 0 && result.lastReadMessageId() != null && matchSocketHandler != null) {
+			matchSocketHandler.emitToUser(result.otherUserId(), "chat:read", Map.of(
+				"roomId", roomId,
+				"readerId", userId,
+				"lastReadMessageId", result.lastReadMessageId()
+			));
+		}
+		return ApiResponse.success(result.page());
+	}
+
+	@Operation(summary = "읽음 처리", description = "채팅방의 lastReadMessageId를 업데이트합니다. 상대방에게 chat:read 소켓 이벤트가 전송됩니다.")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "읽음 처리 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "채팅방 멤버 아님"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "채팅방 없음")
+	})
+	@org.springframework.web.bind.annotation.PatchMapping("/rooms/{roomId}/read")
+	public ApiResponse<java.util.Map<String, Integer>> markAsRead(
+		@Parameter(description = "채팅방 ID") @PathVariable Long roomId,
+		@Valid @RequestBody ReadRequest request
+	) {
+		Long userId = userContext.getUserId();
+		ReadResult result = chatService.markAsRead(roomId, userId, request.lastMessageId());
+
+		if (matchSocketHandler != null) {
+			matchSocketHandler.emitToUser(result.otherUserId(), "chat:read", Map.of(
+				"roomId", roomId,
+				"readerId", userId,
+				"lastReadMessageId", result.lastReadMessageId()
+			));
+		}
+		return ApiResponse.success(Map.of("unreadCount", result.unreadCount()));
+	}
+
+	@Operation(summary = "미읽음 카운트 조회", description = "특정 채팅방의 미읽음 메시지 수를 조회합니다.")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공")
+	@GetMapping("/rooms/{roomId}/unread")
+	public ApiResponse<java.util.Map<String, Integer>> getUnreadCount(
+		@Parameter(description = "채팅방 ID") @PathVariable Long roomId
+	) {
+		int count = chatService.getUnreadCount(roomId, userContext.getUserId());
+		return ApiResponse.success(Map.of("unreadCount", count));
 	}
 }

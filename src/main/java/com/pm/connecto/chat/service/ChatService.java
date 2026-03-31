@@ -16,11 +16,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.pm.connecto.chat.domain.ChatMessage;
 import com.pm.connecto.chat.domain.ChatRoom;
+import com.pm.connecto.chat.domain.ChatRoomMember;
 import com.pm.connecto.chat.domain.MessageType;
 import com.pm.connecto.chat.dto.ChatMessagePageResponse;
 import com.pm.connecto.chat.dto.ChatMessageResponse;
 import com.pm.connecto.chat.dto.ChatRoomResponse;
 import com.pm.connecto.chat.repository.ChatMessageRepository;
+import com.pm.connecto.chat.repository.ChatRoomMemberRepository;
 import com.pm.connecto.chat.repository.ChatRoomRepository;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
@@ -40,6 +42,7 @@ public class ChatService {
 
 	private final ChatRoomRepository chatRoomRepository;
 	private final ChatMessageRepository chatMessageRepository;
+	private final ChatRoomMemberRepository chatRoomMemberRepository;
 	private final FriendshipRepository friendshipRepository;
 	private final BlockRepository blockRepository;
 	private final ProfileRepository profileRepository;
@@ -48,6 +51,7 @@ public class ChatService {
 	public ChatService(
 		ChatRoomRepository chatRoomRepository,
 		ChatMessageRepository chatMessageRepository,
+		ChatRoomMemberRepository chatRoomMemberRepository,
 		FriendshipRepository friendshipRepository,
 		BlockRepository blockRepository,
 		ProfileRepository profileRepository,
@@ -55,6 +59,7 @@ public class ChatService {
 	) {
 		this.chatRoomRepository = chatRoomRepository;
 		this.chatMessageRepository = chatMessageRepository;
+		this.chatRoomMemberRepository = chatRoomMemberRepository;
 		this.friendshipRepository = friendshipRepository;
 		this.blockRepository = blockRepository;
 		this.profileRepository = profileRepository;
@@ -110,15 +115,24 @@ public class ChatService {
 				row -> (String) row[1]
 			));
 
+		// unreadCount 계산: 내 ChatRoomMember 일괄 조회
+		Map<Long, Long> lastReadByRoomId = chatRoomMemberRepository.findByUserIdAndRoomIdIn(userId, roomIds).stream()
+			.collect(Collectors.toMap(m -> m.getRoom().getId(), ChatRoomMember::getLastReadMessageId));
+
 		return rooms.stream().map(room -> {
 			Long friendId = room.getOtherUser(userId).getId();
 			Profile friendProfile = profileByUserId.get(friendId);
+			Long lastReadMessageId = lastReadByRoomId.get(room.getId());
+			int unreadCount = lastReadMessageId != null
+				? chatMessageRepository.countUnread(room.getId(), userId, lastReadMessageId)
+				: chatMessageRepository.countAllUnread(room.getId(), userId);
 			return new ChatRoomResponse(
 				room.getId(),
 				friendId,
 				friendProfile != null ? friendProfile.getNickname() : null,
 				friendProfile != null ? friendProfile.getProfileImageUrl() : null,
 				lastMessageByRoomId.get(room.getId()),
+				unreadCount,
 				room.getUpdatedAt()
 			);
 		}).toList();
@@ -127,8 +141,14 @@ public class ChatService {
 	/**
 	 * 메시지 히스토리 조회 (페이징, 최신 → 과거순)
 	 */
-	@Transactional(readOnly = true)
-	public ChatMessagePageResponse getMessages(Long userId, Long roomId, int page, int size) {
+	/**
+	 * 메시지 히스토리 조회 + 자동 읽음 처리
+	 * 반환값의 otherUserId: Controller에서 chat:read 소켓 emit에 사용
+	 */
+	public record MessagesResult(ChatMessagePageResponse page, Long otherUserId, Long lastReadMessageId) {}
+
+	@Transactional
+	public MessagesResult getMessages(Long userId, Long roomId, int page, int size) {
 		ChatRoom room = chatRoomRepository.findById(roomId)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.CHAT_ROOM_NOT_FOUND));
 		if (!room.isMember(userId)) {
@@ -137,12 +157,95 @@ public class ChatService {
 		size = Math.min(size, MAX_PAGE_SIZE);
 		Pageable pageable = PageRequest.of(page, size);
 		Page<ChatMessage> msgPage = chatMessageRepository.findByRoomIdOrderByCreatedAtDesc(roomId, pageable);
-		return new ChatMessagePageResponse(
+
+		// 첫 페이지 조회 시 자동 읽음 처리
+		Long lastReadMessageId = null;
+		if (page == 0) {
+			Long latestMessageId = chatMessageRepository.findMaxIdByRoomId(roomId).orElse(null);
+			if (latestMessageId != null) {
+				lastReadMessageId = upsertLastRead(room, userId, latestMessageId);
+			}
+		}
+
+		ChatMessagePageResponse pageResponse = new ChatMessagePageResponse(
 			msgPage.getContent().stream().map(ChatMessageResponse::from).toList(),
 			msgPage.hasNext(),
 			page,
 			size
 		);
+		return new MessagesResult(pageResponse, room.getOtherUser(userId).getId(), lastReadMessageId);
+	}
+
+	/**
+	 * 읽음 처리 (REST PATCH /read + 소켓 chat:read 공통)
+	 */
+	public record ReadResult(int unreadCount, Long otherUserId, Long lastReadMessageId) {}
+
+	@Transactional
+	public ReadResult markAsRead(Long roomId, Long userId, Long lastMessageId) {
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.CHAT_ROOM_NOT_FOUND));
+		if (!room.isMember(userId)) {
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+		}
+		Long updatedId = upsertLastRead(room, userId, lastMessageId);
+		int unreadCount = updatedId != null
+			? chatMessageRepository.countUnread(roomId, userId, updatedId)
+			: chatMessageRepository.countAllUnread(roomId, userId);
+		return new ReadResult(unreadCount, room.getOtherUser(userId).getId(), updatedId);
+	}
+
+	/**
+	 * 미읽음 카운트 단순 조회 (GET /unread)
+	 */
+	@Transactional(readOnly = true)
+	public int getUnreadCount(Long roomId, Long userId) {
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.CHAT_ROOM_NOT_FOUND));
+		if (!room.isMember(userId)) {
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+		}
+		return chatRoomMemberRepository.findByRoomIdAndUserId(roomId, userId)
+			.map(m -> m.getLastReadMessageId() != null
+				? chatMessageRepository.countUnread(roomId, userId, m.getLastReadMessageId())
+				: chatMessageRepository.countAllUnread(roomId, userId))
+			.orElse(chatMessageRepository.countAllUnread(roomId, userId));
+	}
+
+	/**
+	 * 소켓 핸들러용 읽음 처리 — 최신 메시지 ID 자동 조회 후 markAsRead
+	 * 메시지가 없으면 null 반환
+	 */
+	@Transactional
+	public ReadResult markAsReadLatest(Long roomId, Long userId) {
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.CHAT_ROOM_NOT_FOUND));
+		if (!room.isMember(userId)) {
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+		}
+		Long latestMessageId = chatMessageRepository.findMaxIdByRoomId(roomId).orElse(null);
+		if (latestMessageId == null) return null;
+
+		Long updatedId = upsertLastRead(room, userId, latestMessageId);
+		int unreadCount = updatedId != null
+			? chatMessageRepository.countUnread(roomId, userId, updatedId)
+			: chatMessageRepository.countAllUnread(roomId, userId);
+		return new ReadResult(unreadCount, room.getOtherUser(userId).getId(), updatedId);
+	}
+
+	/**
+	 * ChatRoomMember upsert — 없으면 생성, 있으면 updateLastRead
+	 * @return 실제로 저장된 lastReadMessageId (null이면 업데이트 안 됨)
+	 */
+	private Long upsertLastRead(ChatRoom room, Long userId, Long messageId) {
+		ChatRoomMember member = chatRoomMemberRepository
+			.findByRoomIdAndUserId(room.getId(), userId)
+			.orElseGet(() -> {
+				User user = userRepository.getReferenceById(userId);
+				return chatRoomMemberRepository.save(new ChatRoomMember(room, user));
+			});
+		member.updateLastRead(messageId);
+		return member.getLastReadMessageId();
 	}
 
 	/**
@@ -207,12 +310,18 @@ public class ChatService {
 			.findTopByRoomIdOrderByCreatedAtDesc(room.getId())
 			.map(msg -> MessageType.IMAGE == msg.getMessageType() ? "사진" : msg.getContent())
 			.orElse(null);
+		int unreadCount = chatRoomMemberRepository.findByRoomIdAndUserId(room.getId(), userId)
+			.map(m -> m.getLastReadMessageId() != null
+				? chatMessageRepository.countUnread(room.getId(), userId, m.getLastReadMessageId())
+				: chatMessageRepository.countAllUnread(room.getId(), userId))
+			.orElse(chatMessageRepository.countAllUnread(room.getId(), userId));
 		return new ChatRoomResponse(
 			room.getId(),
 			friendId,
 			friendProfile != null ? friendProfile.getNickname() : null,
 			friendProfile != null ? friendProfile.getProfileImageUrl() : null,
 			lastMessage,
+			unreadCount,
 			room.getUpdatedAt()
 		);
 	}

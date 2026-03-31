@@ -42,7 +42,8 @@ public class CallController {
 	@SecurityRequirement(name = "Bearer Authentication")
 	@ApiResponses({
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "종료 성공"),
-		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "접근 권한 없음")
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "세션 없음 또는 권한 없음"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 종료된 세션")
 	})
 	@PostMapping("/end")
 	public ApiResponse<Void> endCall(@Valid @RequestBody CallEndRequest request) {
@@ -54,11 +55,27 @@ public class CallController {
 	@SecurityRequirement(name = "Bearer Authentication")
 	@ApiResponses({
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "의사 표현 성공"),
-		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "접근 권한 없음")
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "세션 없음 또는 권한 없음"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "종료되지 않은 세션")
 	})
 	@PostMapping("/again")
 	public ApiResponse<Void> expressCallAgain(@Valid @RequestBody CallAgainRequest request) {
 		callService.expressCallAgain(request.sessionId(), userContext.getUserId(), request.wantAgain());
+		return ApiResponse.success(null);
+	}
+
+	@Operation(summary = "통화 거절", description = "수신된 통화를 거절합니다. 발신자에게 즉시 call:rejected 소켓 이벤트가 전송됩니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "거절 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "세션 없음 또는 권한 없음"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 종료된 세션")
+	})
+	@PostMapping("/reject/{sessionId}")
+	public ApiResponse<Void> rejectCall(
+		@io.swagger.v3.oas.annotations.Parameter(description = "세션 ID") @PathVariable Long sessionId
+	) {
+		callService.rejectCall(sessionId, userContext.getUserId());
 		return ApiResponse.success(null);
 	}
 
