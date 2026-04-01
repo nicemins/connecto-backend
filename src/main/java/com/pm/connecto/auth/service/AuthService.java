@@ -1,23 +1,47 @@
 package com.pm.connecto.auth.service;
 
+import java.time.Duration;
+import java.util.List;
+import java.util.stream.Stream;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.gson.GsonFactory;
 import com.pm.connecto.auth.jwt.JwtTokenProvider;
+import com.pm.connecto.common.exception.BusinessException;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.exception.UnauthorizedException;
 import com.pm.connecto.common.response.ErrorCode;
 import com.pm.connecto.user.domain.User;
+import com.pm.connecto.user.dto.SocialLoginRequest;
 import com.pm.connecto.user.repository.UserRepository;
 
 @Service
 public class AuthService {
 
+	private static final String REFRESH_TOKEN_KEY_PREFIX = "rt:";
+
 	private final UserRepository userRepository;
 	private final JwtTokenProvider jwtTokenProvider;
 	private final PasswordEncoder passwordEncoder;
+
+	@Autowired(required = false)
+	private RedisTemplate<String, String> redisTemplate;
+
+	@Value("${google.android-client-id:}")
+	private String googleAndroidClientId;
+
+	@Value("${google.web-client-id:}")
+	private String googleWebClientId;
 
 	public AuthService(UserRepository userRepository, JwtTokenProvider jwtTokenProvider, PasswordEncoder passwordEncoder) {
 		this.userRepository = userRepository;
@@ -78,7 +102,21 @@ public class AuthService {
 	 * - JWT 토큰 생성만 수행
 	 */
 	public String generateRefreshToken(Long userId) {
-		return jwtTokenProvider.generateRefreshToken(userId);
+		String token = jwtTokenProvider.generateRefreshToken(userId);
+		if (redisTemplate != null) {
+			redisTemplate.opsForValue().set(
+				REFRESH_TOKEN_KEY_PREFIX + userId,
+				token,
+				Duration.ofMillis(jwtTokenProvider.getRefreshExpiration())
+			);
+		}
+		return token;
+	}
+
+	public void revokeRefreshToken(Long userId) {
+		if (redisTemplate != null) {
+			redisTemplate.delete(REFRESH_TOKEN_KEY_PREFIX + userId);
+		}
 	}
 
 	/**
@@ -95,7 +133,18 @@ public class AuthService {
 			throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
 		}
 
+		if (!"refresh".equals(jwtTokenProvider.getTokenType(refreshToken))) {
+			throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+		}
+
 		Long userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
+
+		if (redisTemplate != null) {
+			String stored = redisTemplate.opsForValue().get(REFRESH_TOKEN_KEY_PREFIX + userId);
+			if (!refreshToken.equals(stored)) {
+				throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+			}
+		}
 
 		User user = userRepository.findByIdForAuth(userId)
 			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.USER_NOT_FOUND));
@@ -125,5 +174,51 @@ public class AuthService {
 	 */
 	public long getRefreshExpiration() {
 		return jwtTokenProvider.getRefreshExpiration();
+	}
+
+	/**
+	 * 소셜 로그인 — 이메일 추출 후 유저 조회 또는 자동 생성
+	 */
+	@Transactional
+	public User socialLogin(SocialLoginRequest req) {
+		String email = switch (req.provider()) {
+			case "google" -> verifyGoogleToken(req.token());
+			default -> throw new BusinessException(ErrorCode.INVALID_PROVIDER);
+		};
+
+		return userRepository.findByEmailForAuth(email)
+			.filter(u -> !u.isDeleted())
+			.map(u -> {
+				if (!req.provider().equals(u.getProvider())) {
+					throw new BusinessException(ErrorCode.INVALID_PROVIDER);
+				}
+				return u;
+			})
+			.orElseGet(() -> userRepository.save(
+				User.createSocialUser(email, req.provider(), null)));
+	}
+
+	private String verifyGoogleToken(String idTokenString) {
+		try {
+			List<String> audiences = Stream.of(googleAndroidClientId, googleWebClientId)
+				.filter(id -> id != null && !id.isBlank())
+				.toList();
+
+			GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
+				new NetHttpTransport(), GsonFactory.getDefaultInstance())
+				.setAudience(audiences)
+				.build();
+
+			GoogleIdToken idToken = verifier.verify(idTokenString);
+			if (idToken == null) {
+				throw new UnauthorizedException(ErrorCode.INVALID_SOCIAL_TOKEN);
+			}
+
+			return idToken.getPayload().getEmail();
+		} catch (UnauthorizedException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new UnauthorizedException(ErrorCode.INVALID_SOCIAL_TOKEN);
+		}
 	}
 }

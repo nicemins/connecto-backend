@@ -2,10 +2,24 @@
 cors:
   allowed-origins: http://localhost:3000
 
+# Socket.io 설정
+socketio:
+  host: 0.0.0.0
+  port: 9092
+
 jwt:
-  secret: your-secret-key-minimum-256-bits-for-hs256-algorithm-please-change-this-in-production
+  secret: ${JWT_SECRET}
   access-expiration: 3600000
   refresh-expiration: 604800000
+
+cloud:
+  aws:
+    s3:
+      bucket: ${AWS_S3_BUCKET:connecto-dev}
+      region: ${AWS_REGION:ap-northeast-2}
+    credentials:
+      access-key: ${AWS_ACCESS_KEY_ID:}
+      secret-key: ${AWS_SECRET_ACCESS_KEY:}
 
 spring:
   application:
@@ -17,16 +31,19 @@ spring:
     password:
   h2:
     console:
-      enabled: true
-      path: /h2-console
+      enabled: false
   jpa:
     hibernate:
-      ddl-auto: create-drop
-    show-sql: true
+      ddl-auto: update
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
         use_sql_comments: true
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
   data:
     redis:
       host: localhost
@@ -37,3 +54,15 @@ spring:
           max-active: 8
           max-idle: 8
           min-idle: 0
+
+google:
+  android-client-id: ${GOOGLE_ANDROID_CLIENT_ID:}
+  web-client-id: ${GOOGLE_WEB_CLIENT_ID:}
+
+firebase:
+  service-account-json: ${FIREBASE_SERVICE_ACCOUNT_JSON:}
+
+turn:
+  secret: ${TURN_SECRET:}
+  url: ${TURN_URL:}
+  stun-url: stun:stun.l.google.com:19302

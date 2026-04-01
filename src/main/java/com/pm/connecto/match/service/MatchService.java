@@ -1,5 +1,6 @@
 package com.pm.connecto.match.service;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.pm.connecto.common.exception.BusinessException;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.response.ErrorCode;
@@ -58,10 +60,21 @@ public class MatchService {
 	 */
 	@Transactional
 	public MatchStartResponse startMatching(Long userId) {
-		// 진행 중인 통화 확인
+		// 잔존 IN_PROGRESS 세션 자동 정리 (WebRTC 실패 등으로 /call/end 미호출 시)
+		callSessionRepository.findInProgressByUserId(userId).ifPresent(session -> {
+			boolean isStale = session.getStartedAt() == null
+				|| session.getStartedAt().isBefore(LocalDateTime.now().minusMinutes(5));
+			if (isStale) {
+				session.end();
+				callSessionRepository.save(session);
+				log.info("Auto-ended stale session {} for user {}", session.getId(), userId);
+			}
+		});
+
+		// 진행 중인 통화 확인 (정리 후 재확인)
 		if (callSessionRepository.findInProgressByUserId(userId).isPresent()) {
 			log.warn("User {} is already in a call", userId);
-			throw new ForbiddenException(ErrorCode.ALREADY_IN_CALL);
+			throw new BusinessException(ErrorCode.ALREADY_IN_CALL);
 		}
 
 		// 대기열 진입
@@ -118,8 +131,9 @@ public class MatchService {
 				boolean inQueue = matchQueueService.isInQueue(userId);
 				if (inQueue) {
 					log.debug("User {} is waiting in queue", userId);
+					return MatchStatusResponse.matching();
 				}
-				return MatchStatusResponse.waiting();
+				return MatchStatusResponse.idle();
 			});
 	}
 
@@ -160,11 +174,15 @@ public class MatchService {
 		boolean wantAgain = userId.equals(user1Id) 
 			? session.getUser1WantAgain() 
 			: session.getUser2WantAgain();
+		boolean otherWantAgain = userId.equals(user1Id)
+			? session.getUser2WantAgain()
+			: session.getUser1WantAgain();
 
 		log.info("User {} retrieved match result for session {}", userId, sessionId);
 		return new MatchResultResponse(
 			ProfileResponse.from(otherProfile),
-			wantAgain
+			wantAgain,
+			otherWantAgain
 		);
 	}
 

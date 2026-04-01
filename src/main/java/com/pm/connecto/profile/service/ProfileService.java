@@ -1,11 +1,15 @@
 package com.pm.connecto.profile.service;
 
+import java.util.UUID;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.pm.connecto.common.exception.DuplicateResourceException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.response.ErrorCode;
+import com.pm.connecto.common.service.S3Service;
 import com.pm.connecto.profile.domain.Profile;
 import com.pm.connecto.profile.repository.ProfileRepository;
 import com.pm.connecto.user.domain.User;
@@ -16,10 +20,12 @@ public class ProfileService {
 
 	private final ProfileRepository profileRepository;
 	private final UserRepository userRepository;
+	private final S3Service s3Service;
 
-	public ProfileService(ProfileRepository profileRepository, UserRepository userRepository) {
+	public ProfileService(ProfileRepository profileRepository, UserRepository userRepository, S3Service s3Service) {
 		this.profileRepository = profileRepository;
 		this.userRepository = userRepository;
+		this.s3Service = s3Service;
 	}
 
 	@Transactional
@@ -76,6 +82,34 @@ public class ProfileService {
 
 		profile.update(nickname, profileImageUrl, bio);
 		return profile;
+	}
+
+	@Transactional
+	public Profile updateProfileImage(Long userId, MultipartFile file) {
+		Profile profile = profileRepository.findByUserId(userId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.PROFILE_NOT_FOUND));
+
+		String oldKey = s3Service.extractKey(profile.getProfileImageUrl());
+		if (oldKey != null) {
+			s3Service.delete(oldKey);
+		}
+
+		String ext = getExtension(file);
+		String key = "profiles/" + userId + "/" + UUID.randomUUID() + "." + ext;
+		String url = s3Service.upload(file, key);
+
+		profile.updateProfileImageUrl(url);
+		return profile;
+	}
+
+	private String getExtension(MultipartFile file) {
+		String contentType = file.getContentType();
+		if (contentType == null) return "jpg";
+		return switch (contentType) {
+			case "image/png" -> "png";
+			case "image/webp" -> "webp";
+			default -> "jpg";
+		};
 	}
 
 	@Transactional(readOnly = true)

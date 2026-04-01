@@ -8,8 +8,12 @@ public record MatchStatusResponse(
 	Long sessionId,
 	String webrtcChannelId
 ) {
-	public static MatchStatusResponse waiting() {
-		return new MatchStatusResponse("WAITING", null, null);
+	public static MatchStatusResponse idle() {
+		return new MatchStatusResponse("IDLE", null, null);
+	}
+
+	public static MatchStatusResponse matching() {
+		return new MatchStatusResponse("MATCHING", null, null);
 	}
 
 	public static MatchStatusResponse matched(Long sessionId, String webrtcChannelId) {

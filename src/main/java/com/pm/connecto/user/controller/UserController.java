@@ -1,19 +1,27 @@
 package com.pm.connecto.user.controller;
 
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.pm.connecto.common.context.UserContext;
 import com.pm.connecto.common.response.ApiResponse;
+import com.pm.connecto.friend.dto.BlockedUserResponse;
+import com.pm.connecto.friend.service.FriendService;
 import com.pm.connecto.profile.domain.Profile;
 import com.pm.connecto.profile.dto.ProfileCreateRequest;
 import com.pm.connecto.profile.dto.ProfileResponse;
@@ -48,17 +56,20 @@ public class UserController {
 	private final UserService userService;
 	private final UserMeService userMeService;
 	private final ProfileService profileService;
+	private final FriendService friendService;
 	private final UserContext userContext;
 
 	public UserController(
 		UserService userService,
 		UserMeService userMeService,
 		ProfileService profileService,
+		FriendService friendService,
 		UserContext userContext
 	) {
 		this.userService = userService;
 		this.userMeService = userMeService;
 		this.profileService = profileService;
+		this.friendService = friendService;
 		this.userContext = userContext;
 	}
 
@@ -147,6 +158,45 @@ public class UserController {
 			updateRequest.bio()
 		);
 		return ApiResponse.success(ProfileResponse.from(profile));
+	}
+
+	@Operation(summary = "프로필 이미지 수정", description = "프로필 이미지를 변경합니다. (multipart/form-data, 최대 5MB, JPEG/PNG/WEBP)")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "지원하지 않는 파일 형식 또는 크기 초과"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로필 없음")
+	})
+	@PatchMapping(value = "/me/profile/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ApiResponse<ProfileResponse> updateProfileImage(
+		@RequestPart("image") MultipartFile image
+	) {
+		Profile profile = profileService.updateProfileImage(userContext.getUserId(), image);
+		return ApiResponse.success(ProfileResponse.from(profile));
+	}
+
+	// ========== /users/me/blocks - 차단 관리 ==========
+
+	@Operation(summary = "차단 목록 조회", description = "내가 차단한 사용자 목록을 조회합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공")
+	@GetMapping("/me/blocks")
+	public ApiResponse<List<BlockedUserResponse>> getBlockList() {
+		return ApiResponse.success(friendService.getBlockList(userContext.getUserId()));
+	}
+
+	@Operation(summary = "차단 해제", description = "차단한 사용자를 해제합니다.")
+	@SecurityRequirement(name = "Bearer Authentication")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "해제 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "차단 관계 없음")
+	})
+	@DeleteMapping("/me/blocks/{blockedUserId}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void unblockUser(
+		@Parameter(description = "차단 해제할 사용자 ID") @PathVariable Long blockedUserId
+	) {
+		friendService.unblockUser(userContext.getUserId(), blockedUserId);
 	}
 
 	// ========== /users/exists - 중복 확인 (공개 API) ==========

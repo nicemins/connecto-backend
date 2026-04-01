@@ -8,12 +8,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestCookieException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import com.pm.connecto.common.response.ApiResponse;
 import com.pm.connecto.common.response.ErrorCode;
@@ -64,8 +69,7 @@ public class GlobalExceptionHandler {
 			.stream()
 			.map(error -> new ValidationError(
 				error.getField(),
-				error.getDefaultMessage(),
-				error.getRejectedValue()
+				error.getDefaultMessage()
 			))
 			.toList();
 
@@ -91,11 +95,7 @@ public class GlobalExceptionHandler {
 				if (field.contains(".")) {
 					field = field.substring(field.lastIndexOf('.') + 1);
 				}
-				return new ValidationError(
-					field,
-					violation.getMessage(),
-					violation.getInvalidValue()
-				);
+				return new ValidationError(field, violation.getMessage());
 			})
 			.toList();
 
@@ -121,6 +121,16 @@ public class GlobalExceptionHandler {
 	}
 
 	/**
+	 * 필수 쿠키 누락 시 발생 (예: /auth/refresh 호출 시 refreshToken 쿠키 없음)
+	 * MissingRequestCookieException 미처리 시 RuntimeException으로 빠져 500 반환
+	 */
+	@ExceptionHandler(MissingRequestCookieException.class)
+	@ResponseStatus(HttpStatus.UNAUTHORIZED)
+	public ApiResponse<Void> handleMissingRequestCookieException(MissingRequestCookieException e) {
+		return ApiResponse.error(ErrorCode.INVALID_TOKEN, "토큰이 누락되었습니다.");
+	}
+
+	/**
 	 * 필수 요청 파라미터 누락 시 발생
 	 */
 	@ExceptionHandler(MissingServletRequestParameterException.class)
@@ -128,6 +138,44 @@ public class GlobalExceptionHandler {
 	public ApiResponse<Void> handleMissingServletRequestParameterException(MissingServletRequestParameterException e) {
 		String message = String.format("필수 파라미터 '%s'이(가) 누락되었습니다.", e.getParameterName());
 		return ApiResponse.error(ErrorCode.INVALID_INPUT, message);
+	}
+
+	/**
+	 * JSON 파싱 실패 (잘못된 인코딩, 형식 오류 등)
+	 * 미처리 시 500 반환 → 400으로 교정
+	 */
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	@ResponseStatus(HttpStatus.BAD_REQUEST)
+	public ApiResponse<Void> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+		log.warn("HTTP message not readable: {}", e.getMessage());
+		return ApiResponse.error(ErrorCode.INVALID_INPUT, "요청 본문을 읽을 수 없습니다.");
+	}
+
+	/**
+	 * 파일 크기 초과 (5MB)
+	 */
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	@ResponseStatus(HttpStatus.BAD_REQUEST)
+	public ApiResponse<Void> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+		return ApiResponse.error(ErrorCode.FILE_SIZE_EXCEEDED, ErrorCode.FILE_SIZE_EXCEEDED.getMessage());
+	}
+
+	/**
+	 * 지원하지 않는 HTTP 메서드 (405)
+	 */
+	@ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+	@ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+	public ApiResponse<Void> handleHttpRequestMethodNotSupportedException(HttpRequestMethodNotSupportedException e) {
+		return ApiResponse.error(ErrorCode.INVALID_INPUT, "지원하지 않는 HTTP 메서드입니다: " + e.getMethod());
+	}
+
+	/**
+	 * 지원하지 않는 미디어 타입 (415)
+	 */
+	@ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+	@ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+	public ApiResponse<Void> handleHttpMediaTypeNotSupportedException(HttpMediaTypeNotSupportedException e) {
+		return ApiResponse.error(ErrorCode.INVALID_INPUT, "지원하지 않는 미디어 타입입니다: " + e.getContentType());
 	}
 
 	/**
@@ -145,6 +193,7 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(RuntimeException.class)
 	@ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
 	public ApiResponse<Void> handleRuntimeException(RuntimeException e) {
+		log.error("Unhandled runtime exception: {}", e.getMessage(), e);
 		// 프로덕션에서는 상세 메시지 노출 금지
 		return ApiResponse.error(ErrorCode.INTERNAL_ERROR, "서버 오류가 발생했습니다.");
 	}
@@ -152,10 +201,6 @@ public class GlobalExceptionHandler {
 	/**
 	 * Validation 오류 상세 정보
 	 */
-	public record ValidationError(
-		String field,
-		String message,
-		Object rejectedValue
-	) {
+	public record ValidationError(String field, String message) {
 	}
 }

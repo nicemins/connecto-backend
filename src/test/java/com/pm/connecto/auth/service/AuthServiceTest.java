@@ -167,6 +167,7 @@ class AuthServiceTest {
 			// given
 			User user = new User(TEST_EMAIL, ENCODED_PASSWORD);
 			given(jwtTokenProvider.validateToken(REFRESH_TOKEN)).willReturn(true);
+			given(jwtTokenProvider.getTokenType(REFRESH_TOKEN)).willReturn("refresh");
 			given(jwtTokenProvider.getUserIdFromToken(REFRESH_TOKEN)).willReturn(TEST_USER_ID);
 			given(userRepository.findByIdForAuth(TEST_USER_ID)).willReturn(Optional.of(user));
 			given(jwtTokenProvider.generateAccessToken(TEST_USER_ID)).willReturn(ACCESS_TOKEN);
@@ -200,6 +201,7 @@ class AuthServiceTest {
 			User user = new User(TEST_EMAIL, ENCODED_PASSWORD);
 			user.delete();
 			given(jwtTokenProvider.validateToken(REFRESH_TOKEN)).willReturn(true);
+			given(jwtTokenProvider.getTokenType(REFRESH_TOKEN)).willReturn("refresh");
 			given(jwtTokenProvider.getUserIdFromToken(REFRESH_TOKEN)).willReturn(TEST_USER_ID);
 			given(userRepository.findByIdForAuth(TEST_USER_ID)).willReturn(Optional.of(user));
 
@@ -216,6 +218,7 @@ class AuthServiceTest {
 			User user = new User(TEST_EMAIL, ENCODED_PASSWORD);
 			user.block();
 			given(jwtTokenProvider.validateToken(REFRESH_TOKEN)).willReturn(true);
+			given(jwtTokenProvider.getTokenType(REFRESH_TOKEN)).willReturn("refresh");
 			given(jwtTokenProvider.getUserIdFromToken(REFRESH_TOKEN)).willReturn(TEST_USER_ID);
 			given(userRepository.findByIdForAuth(TEST_USER_ID)).willReturn(Optional.of(user));
 

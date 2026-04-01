@@ -12,10 +12,13 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.pm.connecto.auth.service.AuthService;
+import com.pm.connecto.common.context.UserContext;
 import com.pm.connecto.common.response.ApiResponse;
+import com.pm.connecto.notification.service.FcmService;
 import com.pm.connecto.user.domain.User;
 import com.pm.connecto.user.dto.LoginRequest;
 import com.pm.connecto.user.dto.LoginResponse;
+import com.pm.connecto.user.dto.SocialLoginRequest;
 import com.pm.connecto.user.dto.UserCreateRequest;
 import com.pm.connecto.user.dto.UserResponse;
 import com.pm.connecto.user.service.UserService;
@@ -38,10 +41,14 @@ public class AuthController {
 
 	private final AuthService authService;
 	private final UserService userService;
+	private final FcmService fcmService;
+	private final UserContext userContext;
 
-	public AuthController(AuthService authService, UserService userService) {
+	public AuthController(AuthService authService, UserService userService, FcmService fcmService, UserContext userContext) {
 		this.authService = authService;
 		this.userService = userService;
+		this.fcmService = fcmService;
+		this.userContext = userContext;
 	}
 
 	@Operation(summary = "회원가입", description = "이메일과 비밀번호로 새 계정을 생성합니다.")
@@ -82,6 +89,34 @@ public class AuthController {
 			.body(ApiResponse.success(new LoginResponse(accessToken)));
 	}
 
+	@Operation(summary = "소셜 로그인", description = "소셜 ID 토큰으로 로그인합니다. 최초 로그인 시 계정이 자동 생성됩니다.")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "소셜 로그인 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "지원하지 않는 provider"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 소셜 토큰")
+	})
+	@PostMapping("/social-login")
+	public ResponseEntity<ApiResponse<LoginResponse>> socialLogin(
+		@Valid @RequestBody SocialLoginRequest request
+	) {
+		User user = authService.socialLogin(request);
+
+		String accessToken = authService.generateAccessToken(user.getId());
+		String refreshToken = authService.generateRefreshToken(user.getId());
+
+		ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", refreshToken)
+			.httpOnly(true)
+			.secure(true)
+			.path("/")
+			.maxAge(authService.getRefreshExpiration() / 1000)
+			.sameSite("Strict")
+			.build();
+
+		return ResponseEntity.ok()
+			.header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+			.body(ApiResponse.success(new LoginResponse(accessToken)));
+	}
+
 	@Operation(summary = "토큰 갱신", description = "Refresh Token으로 새로운 Access Token을 발급받습니다.")
 	@ApiResponses({
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "토큰 갱신 성공"),
@@ -98,6 +133,12 @@ public class AuthController {
 	@PostMapping("/logout")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public ResponseEntity<Void> logout() {
+		Long userId = userContext.getUserIdOrNull();
+		if (userId != null) {
+			fcmService.deleteAllTokens(userId);
+			authService.revokeRefreshToken(userId);
+		}
+
 		ResponseCookie deleteCookie = ResponseCookie.from("refreshToken", "")
 			.httpOnly(true)
 			.secure(true)

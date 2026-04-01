@@ -7,6 +7,7 @@ import com.pm.connecto.profile.dto.ProfileResponse;
  */
 public record MatchResultResponse(
 	ProfileResponse profile,
-	boolean wantAgain
+	boolean wantAgain,
+	boolean otherWantAgain
 ) {
 }

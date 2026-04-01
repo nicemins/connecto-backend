@@ -9,6 +9,8 @@ import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.exception.UnauthorizedException;
 import com.pm.connecto.common.response.ErrorCode;
+import com.pm.connecto.interest.domain.Interest;
+import com.pm.connecto.interest.repository.InterestRepository;
 import com.pm.connecto.language.domain.Language;
 import com.pm.connecto.language.repository.LanguageRepository;
 import com.pm.connecto.profile.domain.Profile;
@@ -23,15 +25,18 @@ public class UserMeService {
 	private final UserRepository userRepository;
 	private final ProfileRepository profileRepository;
 	private final LanguageRepository languageRepository;
+	private final InterestRepository interestRepository;
 
 	public UserMeService(
 		UserRepository userRepository,
 		ProfileRepository profileRepository,
-		LanguageRepository languageRepository
+		LanguageRepository languageRepository,
+		InterestRepository interestRepository
 	) {
 		this.userRepository = userRepository;
 		this.profileRepository = profileRepository;
 		this.languageRepository = languageRepository;
+		this.interestRepository = interestRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -39,11 +44,13 @@ public class UserMeService {
 		User user = findUserWithValidation(userId);
 		Profile profile = profileRepository.findByUserId(userId).orElse(null);
 		List<Language> languages = languageRepository.findByUserId(userId);
+		List<Interest> interests = interestRepository.findByUserId(userId);
 
 		return UserMeResponse.builder()
 			.user(user)
 			.profile(profile)
 			.languages(languages)
+			.interests(interests)
 			.build();
 	}
 
@@ -70,11 +77,13 @@ public class UserMeService {
 		User user = findUserWithValidation(targetUserId);
 		Profile profile = profileRepository.findByUserId(targetUserId).orElse(null);
 		List<Language> languages = languageRepository.findByUserId(targetUserId);
+		List<Interest> interests = interestRepository.findByUserId(targetUserId);
 
 		return UserMeResponse.builder()
 			.user(user)
 			.profile(profile)
 			.languages(languages)
+			.interests(interests)
 			.build();
 	}
 }

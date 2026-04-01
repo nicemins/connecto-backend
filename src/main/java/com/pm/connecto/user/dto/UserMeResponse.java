@@ -3,6 +3,7 @@ package com.pm.connecto.user.dto;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.pm.connecto.interest.domain.Interest;
 import com.pm.connecto.language.domain.Language;
 import com.pm.connecto.language.domain.LanguageLevel;
 import com.pm.connecto.language.domain.LanguageType;
@@ -12,7 +13,8 @@ import com.pm.connecto.user.domain.User;
 public record UserMeResponse(
 	UserInfo user,
 	ProfileInfo profile,
-	List<LanguageInfo> languages
+	List<LanguageInfo> languages,
+	List<InterestInfo> interests
 ) {
 
 	// ========== 중첩 DTO ==========
@@ -66,6 +68,12 @@ public record UserMeResponse(
 		}
 	}
 
+	public record InterestInfo(Long id, String tag) {
+		public static InterestInfo from(Interest interest) {
+			return new InterestInfo(interest.getId(), interest.getTag());
+		}
+	}
+
 	// ========== Builder 패턴 ==========
 
 	public static Builder builder() {
@@ -76,6 +84,7 @@ public record UserMeResponse(
 		private User user;
 		private Profile profile;
 		private List<Language> languages = List.of();
+		private List<Interest> interests = List.of();
 
 		public Builder user(User user) {
 			this.user = user;
@@ -92,11 +101,17 @@ public record UserMeResponse(
 			return this;
 		}
 
+		public Builder interests(List<Interest> interests) {
+			this.interests = interests != null ? interests : List.of();
+			return this;
+		}
+
 		public UserMeResponse build() {
 			return new UserMeResponse(
 				UserInfo.from(user),
 				ProfileInfo.from(profile),
-				languages.stream().map(LanguageInfo::from).toList()
+				languages.stream().map(LanguageInfo::from).toList(),
+				interests.stream().map(InterestInfo::from).toList()
 			);
 		}
 	}
