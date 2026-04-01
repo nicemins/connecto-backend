@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.pm.connecto.common.exception.BusinessException;
+import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.response.ErrorCode;
 import com.pm.connecto.match.domain.CallSession;
@@ -35,14 +36,14 @@ public class ReportService {
 
 		// 신고자가 해당 세션 참여자인지 검증
 		CallSession session = callSessionRepository.findByIdAndUserId(sessionId, reporterId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.SESSION_NOT_FOUND));
 
 		// 피신고자가 실제 상대방인지 검증
 		Long otherUserId = session.getUser1().getId().equals(reporterId)
 			? session.getUser2().getId()
 			: session.getUser1().getId();
 		if (!reportedUserId.equals(otherUserId)) {
-			throw new BusinessException(ErrorCode.ACCESS_DENIED);
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
 		}
 
 		if (reportRepository.existsByReporterIdAndReportedIdAndSessionId(reporterId, reportedUserId, sessionId)) {

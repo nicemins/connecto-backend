@@ -154,6 +154,8 @@ public class MatchSocketHandler {
 
 			// 친구들에게 온라인 상태 알림
 			notifyFriendsStatus(userId, true);
+			// 이미 접속 중인 친구들의 온라인 상태를 연결된 사용자에게 초기화
+			notifyOnlineFriendsToUser(userId, client);
 		} catch (Exception e) {
 			log.error("Error during client connection", e);
 			client.disconnect();
@@ -446,6 +448,28 @@ public class MatchSocketHandler {
 			});
 		} catch (Exception e) {
 			log.error("Error notifying friends status for user {}", userId, e);
+		}
+	}
+
+	/**
+	 * 접속 시 이미 온라인인 친구들 상태를 연결된 사용자에게 emit
+	 * - 앱 첫 실행 시 친구 온라인 상태 초기화용
+	 */
+	private void notifyOnlineFriendsToUser(Long userId, SocketIOClient client) {
+		try {
+			friendshipRepository.findAllByUserId(userId).forEach(friendship -> {
+				Long friendId = friendship.getUser1().getId().equals(userId)
+					? friendship.getUser2().getId()
+					: friendship.getUser1().getId();
+				if (clientUserIdMap.containsValue(friendId)) {
+					client.sendEvent("friend:status-change", Map.of(
+						"friendId", friendId,
+						"isOnline", true
+					));
+				}
+			});
+		} catch (Exception e) {
+			log.error("Error notifying online friends to user {}", userId, e);
 		}
 	}
 

@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.pm.connecto.common.exception.BusinessException;
 import com.pm.connecto.common.exception.ForbiddenException;
 import com.pm.connecto.common.exception.ResourceNotFoundException;
 import com.pm.connecto.common.response.ErrorCode;
@@ -73,7 +74,7 @@ public class MatchService {
 		// 진행 중인 통화 확인 (정리 후 재확인)
 		if (callSessionRepository.findInProgressByUserId(userId).isPresent()) {
 			log.warn("User {} is already in a call", userId);
-			throw new ForbiddenException(ErrorCode.ALREADY_IN_CALL);
+			throw new BusinessException(ErrorCode.ALREADY_IN_CALL);
 		}
 
 		// 대기열 진입

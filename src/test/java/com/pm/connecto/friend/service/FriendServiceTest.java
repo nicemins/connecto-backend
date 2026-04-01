@@ -25,6 +25,7 @@ import com.pm.connecto.friend.domain.FriendRequest;
 import com.pm.connecto.friend.domain.FriendRequestStatus;
 import com.pm.connecto.friend.domain.Friendship;
 import com.pm.connecto.friend.dto.FriendRequestResponse;
+import com.pm.connecto.friend.repository.BlockRepository;
 import com.pm.connecto.friend.repository.FriendRequestRepository;
 import com.pm.connecto.friend.repository.FriendshipRepository;
 import com.pm.connecto.notification.service.FcmService;
@@ -41,6 +42,9 @@ class FriendServiceTest {
 
 	@Mock
 	private FriendshipRepository friendshipRepository;
+
+	@Mock
+	private BlockRepository blockRepository;
 
 	@Mock
 	private UserRepository userRepository;
@@ -74,6 +78,7 @@ class FriendServiceTest {
 			User receiver = createUser("receiver@example.com");
 			given(userRepository.findActiveById(SENDER_ID)).willReturn(Optional.of(sender));
 			given(userRepository.findActiveById(RECEIVER_ID)).willReturn(Optional.of(receiver));
+			given(blockRepository.existsBlockBetween(SENDER_ID, RECEIVER_ID)).willReturn(false);
 			given(friendRequestRepository.existsActiveRequestBetween(SENDER_ID, RECEIVER_ID)).willReturn(false);
 			given(friendRequestRepository.save(any(FriendRequest.class))).willAnswer(inv -> inv.getArgument(0));
 			given(profileRepository.findByUserId(SENDER_ID)).willReturn(Optional.empty());
@@ -119,6 +124,7 @@ class FriendServiceTest {
 			User receiver = createUser("receiver@example.com");
 			given(userRepository.findActiveById(SENDER_ID)).willReturn(Optional.of(sender));
 			given(userRepository.findActiveById(RECEIVER_ID)).willReturn(Optional.of(receiver));
+			given(blockRepository.existsBlockBetween(SENDER_ID, RECEIVER_ID)).willReturn(false);
 			given(friendRequestRepository.existsActiveRequestBetween(SENDER_ID, RECEIVER_ID)).willReturn(true);
 
 			// when & then
