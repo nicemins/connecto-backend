@@ -10,3 +10,4 @@
 | turn-credential | 100% | 2026-03-14 | `turn-credential/` |
 | chat (1:1 채팅) | 98% | 2026-03-18 | `chat/` |
 | friend-block | 97% | 2026-03-18 | `friend-block/` |
+| security (OWASP Top 10 보안 강화) | 100% | 2026-03-23 | `security/` |
