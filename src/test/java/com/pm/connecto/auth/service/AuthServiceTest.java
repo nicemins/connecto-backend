@@ -162,21 +162,24 @@ class AuthServiceTest {
 	class RefreshAccessTokenTest {
 
 		@Test
-		@DisplayName("성공: 유효한 Refresh Token으로 새 Access Token 발급")
+		@DisplayName("성공: 유효한 Refresh Token으로 새 Access Token + 새 Refresh Token 발급")
 		void 유효한_리프레시_토큰으로_갱신_성공() {
 			// given
+			String newRefreshToken = "newRefreshToken456";
 			User user = new User(TEST_EMAIL, ENCODED_PASSWORD);
 			given(jwtTokenProvider.validateToken(REFRESH_TOKEN)).willReturn(true);
 			given(jwtTokenProvider.getTokenType(REFRESH_TOKEN)).willReturn("refresh");
 			given(jwtTokenProvider.getUserIdFromToken(REFRESH_TOKEN)).willReturn(TEST_USER_ID);
 			given(userRepository.findByIdForAuth(TEST_USER_ID)).willReturn(Optional.of(user));
 			given(jwtTokenProvider.generateAccessToken(TEST_USER_ID)).willReturn(ACCESS_TOKEN);
+			given(jwtTokenProvider.generateRefreshToken(TEST_USER_ID)).willReturn(newRefreshToken);
 
 			// when
-			String result = authService.refreshAccessToken(REFRESH_TOKEN);
+			AuthService.TokenPair result = authService.refreshAccessToken(REFRESH_TOKEN);
 
 			// then
-			assertThat(result).isEqualTo(ACCESS_TOKEN);
+			assertThat(result.accessToken()).isEqualTo(ACCESS_TOKEN);
+			assertThat(result.refreshToken()).isEqualTo(newRefreshToken);
 			verify(jwtTokenProvider).validateToken(REFRESH_TOKEN);
 			verify(jwtTokenProvider).getUserIdFromToken(REFRESH_TOKEN);
 			verify(userRepository).findByIdForAuth(TEST_USER_ID);
