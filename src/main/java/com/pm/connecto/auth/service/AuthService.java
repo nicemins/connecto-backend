@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.stream.Stream;
 
+import jakarta.annotation.PostConstruct;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -42,6 +44,17 @@ public class AuthService {
 
 	@Value("${google.web-client-id:}")
 	private String googleWebClientId;
+
+	private GoogleIdTokenVerifier googleIdTokenVerifier;
+
+	@PostConstruct
+	public void initGoogleVerifier() {
+		List<String> audiences = Stream.of(googleAndroidClientId, googleWebClientId)
+			.filter(id -> id != null && !id.isBlank()).toList();
+		this.googleIdTokenVerifier = new GoogleIdTokenVerifier.Builder(
+			new NetHttpTransport(), GsonFactory.getDefaultInstance())
+			.setAudience(audiences).build();
+	}
 
 	public AuthService(UserRepository userRepository, JwtTokenProvider jwtTokenProvider, PasswordEncoder passwordEncoder) {
 		this.userRepository = userRepository;
@@ -162,6 +175,14 @@ public class AuthService {
 			throw new ForbiddenException(ErrorCode.INACTIVE_USER);
 		}
 
+		String newRefreshToken = jwtTokenProvider.generateRefreshToken(userId);
+		if (redisTemplate != null) {
+			redisTemplate.opsForValue().set(
+				REFRESH_TOKEN_KEY_PREFIX + userId,
+				newRefreshToken,
+				Duration.ofMillis(jwtTokenProvider.getRefreshExpiration())
+			);
+		}
 		return jwtTokenProvider.generateAccessToken(userId);
 	}
 
@@ -200,16 +221,7 @@ public class AuthService {
 
 	private String verifyGoogleToken(String idTokenString) {
 		try {
-			List<String> audiences = Stream.of(googleAndroidClientId, googleWebClientId)
-				.filter(id -> id != null && !id.isBlank())
-				.toList();
-
-			GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
-				new NetHttpTransport(), GsonFactory.getDefaultInstance())
-				.setAudience(audiences)
-				.build();
-
-			GoogleIdToken idToken = verifier.verify(idTokenString);
+			GoogleIdToken idToken = googleIdTokenVerifier.verify(idTokenString);
 			if (idToken == null) {
 				throw new UnauthorizedException(ErrorCode.INVALID_SOCIAL_TOKEN);
 			}
