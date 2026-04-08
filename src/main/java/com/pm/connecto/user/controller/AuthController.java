@@ -117,15 +117,26 @@ public class AuthController {
 			.body(ApiResponse.success(new LoginResponse(accessToken)));
 	}
 
-	@Operation(summary = "토큰 갱신", description = "Refresh Token으로 새로운 Access Token을 발급받습니다.")
+	@Operation(summary = "토큰 갱신", description = "Refresh Token으로 새로운 Access Token을 발급받습니다. Refresh Token도 함께 교체됩니다.")
 	@ApiResponses({
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "토큰 갱신 성공"),
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 Refresh Token")
 	})
 	@PostMapping("/refresh")
-	public ApiResponse<LoginResponse> refresh(@CookieValue("refreshToken") String refreshToken) {
-		String accessToken = authService.refreshAccessToken(refreshToken);
-		return ApiResponse.success(new LoginResponse(accessToken));
+	public ResponseEntity<ApiResponse<LoginResponse>> refresh(@CookieValue("refreshToken") String refreshToken) {
+		AuthService.TokenPair tokens = authService.refreshAccessToken(refreshToken);
+
+		ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", tokens.refreshToken())
+			.httpOnly(true)
+			.secure(true)
+			.path("/")
+			.maxAge(authService.getRefreshExpiration() / 1000)
+			.sameSite("Strict")
+			.build();
+
+		return ResponseEntity.ok()
+			.header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+			.body(ApiResponse.success(new LoginResponse(tokens.accessToken())));
 	}
 
 	@Operation(summary = "로그아웃", description = "Refresh Token 쿠키를 삭제하여 로그아웃합니다.")

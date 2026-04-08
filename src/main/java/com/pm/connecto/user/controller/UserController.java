@@ -22,6 +22,7 @@ import com.pm.connecto.common.context.UserContext;
 import com.pm.connecto.common.response.ApiResponse;
 import com.pm.connecto.friend.dto.BlockedUserResponse;
 import com.pm.connecto.friend.service.FriendService;
+import com.pm.connecto.notification.service.FcmService;
 import com.pm.connecto.profile.domain.Profile;
 import com.pm.connecto.profile.dto.ProfileCreateRequest;
 import com.pm.connecto.profile.dto.ProfileResponse;
@@ -57,6 +58,7 @@ public class UserController {
 	private final UserMeService userMeService;
 	private final ProfileService profileService;
 	private final FriendService friendService;
+	private final FcmService fcmService;
 	private final UserContext userContext;
 
 	public UserController(
@@ -64,12 +66,14 @@ public class UserController {
 		UserMeService userMeService,
 		ProfileService profileService,
 		FriendService friendService,
+		FcmService fcmService,
 		UserContext userContext
 	) {
 		this.userService = userService;
 		this.userMeService = userMeService;
 		this.profileService = profileService;
 		this.friendService = friendService;
+		this.fcmService = fcmService;
 		this.userContext = userContext;
 	}
 
@@ -107,7 +111,9 @@ public class UserController {
 	@DeleteMapping("/me")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void deleteMe() {
-		userService.deleteUser(userContext.getUserId());
+		Long userId = userContext.getUserId();
+		fcmService.deleteAllTokens(userId);
+		userService.deleteUser(userId);
 	}
 
 	// ========== /users/me/profile - 프로필 ==========

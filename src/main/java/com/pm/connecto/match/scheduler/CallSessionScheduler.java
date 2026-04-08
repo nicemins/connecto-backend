@@ -11,8 +11,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+
 import com.pm.connecto.match.domain.CallSession;
 import com.pm.connecto.match.domain.CallSessionStatus;
+import com.pm.connecto.match.handler.MatchSocketHandler;
 import com.pm.connecto.match.repository.CallSessionRepository;
 import com.pm.connecto.match.service.MatchQueueService;
 
@@ -31,13 +34,16 @@ public class CallSessionScheduler {
 
 	private final CallSessionRepository callSessionRepository;
 	private final MatchQueueService matchQueueService;
+	private final MatchSocketHandler matchSocketHandler;
 
 	public CallSessionScheduler(
 		CallSessionRepository callSessionRepository,
-		MatchQueueService matchQueueService
+		MatchQueueService matchQueueService,
+		MatchSocketHandler matchSocketHandler
 	) {
 		this.callSessionRepository = callSessionRepository;
 		this.matchQueueService = matchQueueService;
+		this.matchSocketHandler = matchSocketHandler;
 	}
 
 	/**
@@ -63,12 +69,12 @@ public class CallSessionScheduler {
 				LocalDateTime.now()
 			).getSeconds();
 			
-			log.info("Auto-expired call session {} (duration: {} seconds, exceeded {} minutes limit)", 
+			log.info("Auto-expired call session {} (duration: {} seconds, exceeded {} minutes limit)",
 				session.getId(), durationSeconds, MAX_CALL_DURATION_MINUTES);
-			
-			// TODO: 프론트엔드에 종료 이벤트 전송 (WebSocket 또는 SSE)
-			// - WebSocket: /topic/call/{sessionId}/expired
-			// - 또는 SSE: /events/call/{sessionId}
+
+			Map<String, Object> payload = Map.of("sessionId", session.getId());
+			matchSocketHandler.emitToUser(session.getUser1().getId(), "call:expired", payload);
+			matchSocketHandler.emitToUser(session.getUser2().getId(), "call:expired", payload);
 		}
 
 		if (!expiredSessions.isEmpty()) {

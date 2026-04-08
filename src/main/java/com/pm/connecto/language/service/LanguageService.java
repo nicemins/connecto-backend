@@ -73,15 +73,6 @@ public class LanguageService {
 		languageRepository.delete(language);
 	}
 
-	@Transactional
-	public Language updateLanguageLevel(Long userId, Long languageId, LanguageLevel level) {
-		Language language = languageRepository.findByIdAndUserId(languageId, userId)
-			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.LANGUAGE_NOT_FOUND));
-
-		language.updateLevel(level);
-		return language;
-	}
-
 	/**
 	 * 사용자 언어 전체 교체 (기존 삭제 후 새로 저장)
 	 * 

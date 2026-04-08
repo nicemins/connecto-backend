@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.stream.Stream;
 
+import jakarta.annotation.PostConstruct;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -28,6 +30,8 @@ import com.pm.connecto.user.repository.UserRepository;
 @Service
 public class AuthService {
 
+	public record TokenPair(String accessToken, String refreshToken) {}
+
 	private static final String REFRESH_TOKEN_KEY_PREFIX = "rt:";
 
 	private final UserRepository userRepository;
@@ -42,6 +46,17 @@ public class AuthService {
 
 	@Value("${google.web-client-id:}")
 	private String googleWebClientId;
+
+	private GoogleIdTokenVerifier googleIdTokenVerifier;
+
+	@PostConstruct
+	public void initGoogleVerifier() {
+		List<String> audiences = Stream.of(googleAndroidClientId, googleWebClientId)
+			.filter(id -> id != null && !id.isBlank()).toList();
+		this.googleIdTokenVerifier = new GoogleIdTokenVerifier.Builder(
+			new NetHttpTransport(), GsonFactory.getDefaultInstance())
+			.setAudience(audiences).build();
+	}
 
 	public AuthService(UserRepository userRepository, JwtTokenProvider jwtTokenProvider, PasswordEncoder passwordEncoder) {
 		this.userRepository = userRepository;
@@ -120,15 +135,14 @@ public class AuthService {
 	}
 
 	/**
-	 * Refresh Token으로 Access Token 재발급
-	 * 
+	 * Refresh Token 검증 후 Access Token + 새 Refresh Token 재발급 (rotation)
+	 *
 	 * <p>트랜잭션: readOnly
 	 * - DB 조회만 수행 (User 조회)
-	 * - 데이터 수정 없음
-	 * - 사용자 상태 검증 후 새 토큰 발급
+	 * - Redis는 트랜잭션 외부에서 별도 처리
 	 */
 	@Transactional(readOnly = true)
-	public String refreshAccessToken(String refreshToken) {
+	public TokenPair refreshAccessToken(String refreshToken) {
 		if (!jwtTokenProvider.validateToken(refreshToken)) {
 			throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
 		}
@@ -162,7 +176,15 @@ public class AuthService {
 			throw new ForbiddenException(ErrorCode.INACTIVE_USER);
 		}
 
-		return jwtTokenProvider.generateAccessToken(userId);
+		String newRefreshToken = jwtTokenProvider.generateRefreshToken(userId);
+		if (redisTemplate != null) {
+			redisTemplate.opsForValue().set(
+				REFRESH_TOKEN_KEY_PREFIX + userId,
+				newRefreshToken,
+				Duration.ofMillis(jwtTokenProvider.getRefreshExpiration())
+			);
+		}
+		return new TokenPair(jwtTokenProvider.generateAccessToken(userId), newRefreshToken);
 	}
 
 	/**
@@ -200,16 +222,7 @@ public class AuthService {
 
 	private String verifyGoogleToken(String idTokenString) {
 		try {
-			List<String> audiences = Stream.of(googleAndroidClientId, googleWebClientId)
-				.filter(id -> id != null && !id.isBlank())
-				.toList();
-
-			GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
-				new NetHttpTransport(), GsonFactory.getDefaultInstance())
-				.setAudience(audiences)
-				.build();
-
-			GoogleIdToken idToken = verifier.verify(idTokenString);
+			GoogleIdToken idToken = googleIdTokenVerifier.verify(idTokenString);
 			if (idToken == null) {
 				throw new UnauthorizedException(ErrorCode.INVALID_SOCIAL_TOKEN);
 			}

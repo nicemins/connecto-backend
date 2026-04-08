@@ -362,6 +362,15 @@ public class MatchSocketHandler {
 
 		channelRoomMap.computeIfAbsent(channelId, k -> ConcurrentHashMap.newKeySet()).add(client);
 		log.info("User {} joined WebRTC channel {}", userId, channelId);
+
+		// 두 번째 peer가 join 완료 시 양쪽에 peer-ready 브로드캐스트
+		Set<SocketIOClient> room = channelRoomMap.get(channelId);
+		if (room != null && room.size() >= 2) {
+			room.stream()
+				.filter(SocketIOClient::isChannelOpen)
+				.forEach(peer -> peer.sendEvent("webrtc:peer-ready", Map.of("channelId", channelId)));
+			log.info("Both peers joined WebRTC channel {}, sent peer-ready", channelId);
+		}
 	}
 
 	/**
