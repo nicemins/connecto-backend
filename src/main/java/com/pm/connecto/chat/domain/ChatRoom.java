@@ -52,10 +52,10 @@ public class ChatRoom {
 	@Column(nullable = false)
 	private LocalDateTime updatedAt;
 
-	@Column(nullable = false)
+	@Column(nullable = false, columnDefinition = "boolean DEFAULT false")
 	private boolean user1Left = false;
 
-	@Column(nullable = false)
+	@Column(nullable = false, columnDefinition = "boolean DEFAULT false")
 	private boolean user2Left = false;
 
 	@PrePersist
