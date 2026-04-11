@@ -6,5 +6,6 @@ public record ChatMessagePageResponse(
 	List<ChatMessageResponse> messages,
 	boolean hasNext,
 	int page,
-	int size
+	int size,
+	Long partnerLastReadMessageId  // 상대방이 마지막으로 읽은 messageId — 읽음 표시 렌더링용
 ) {}

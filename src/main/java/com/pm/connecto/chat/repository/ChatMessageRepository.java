@@ -1,5 +1,6 @@
 package com.pm.connecto.chat.repository;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -17,6 +18,14 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 	// JOIN FETCH sender: getMessages() 페이징 시 N+1 방지
 	@Query("SELECT m FROM ChatMessage m JOIN FETCH m.sender WHERE m.room.id = :roomId ORDER BY m.createdAt DESC")
 	Page<ChatMessage> findByRoomIdOrderByCreatedAtDesc(@Param("roomId") Long roomId, Pageable pageable);
+
+	// 나가기 이후 메시지만 조회 (재진입 없이 leftAt 이후 메시지)
+	@Query("SELECT m FROM ChatMessage m JOIN FETCH m.sender WHERE m.room.id = :roomId AND m.createdAt > :after ORDER BY m.createdAt DESC")
+	Page<ChatMessage> findByRoomIdAndCreatedAtAfterOrderByCreatedAtDesc(
+		@Param("roomId") Long roomId,
+		@Param("after") LocalDateTime after,
+		Pageable pageable
+	);
 
 	Optional<ChatMessage> findTopByRoomIdOrderByCreatedAtDesc(Long roomId);
 

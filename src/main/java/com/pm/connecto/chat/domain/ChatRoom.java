@@ -52,11 +52,12 @@ public class ChatRoom {
 	@Column(nullable = false)
 	private LocalDateTime updatedAt;
 
-	@Column(nullable = false, columnDefinition = "boolean DEFAULT false")
-	private boolean user1Left = false;
+	// null = 나가지 않음, non-null = 나간 시각 (이후 메시지만 표시)
+	@Column(name = "user1_left_at")
+	private LocalDateTime user1LeftAt;
 
-	@Column(nullable = false, columnDefinition = "boolean DEFAULT false")
-	private boolean user2Left = false;
+	@Column(name = "user2_left_at")
+	private LocalDateTime user2LeftAt;
 
 	@PrePersist
 	protected void onCreate() {
@@ -88,14 +89,29 @@ public class ChatRoom {
 		this.updatedAt = time;
 	}
 
+	/** 나간 상태 여부 */
 	public boolean hasLeft(Long userId) {
-		if (user1.getId().equals(userId)) return user1Left;
-		if (user2.getId().equals(userId)) return user2Left;
+		if (user1.getId().equals(userId)) return user1LeftAt != null;
+		if (user2.getId().equals(userId)) return user2LeftAt != null;
 		return false;
 	}
 
+	/** 나간 시각 조회 — 메시지 필터링에 사용 */
+	public LocalDateTime getLeftAt(Long userId) {
+		if (user1.getId().equals(userId)) return user1LeftAt;
+		if (user2.getId().equals(userId)) return user2LeftAt;
+		return null;
+	}
+
+	/** 나가기 — 나간 시각 기록 */
 	public void leave(Long userId) {
-		if (user1.getId().equals(userId)) this.user1Left = true;
-		else if (user2.getId().equals(userId)) this.user2Left = true;
+		if (user1.getId().equals(userId)) this.user1LeftAt = LocalDateTime.now();
+		else if (user2.getId().equals(userId)) this.user2LeftAt = LocalDateTime.now();
+	}
+
+	/** 재진입 — 새 메시지 수신 시 호출 */
+	public void rejoin(Long userId) {
+		if (user1.getId().equals(userId)) this.user1LeftAt = null;
+		else if (user2.getId().equals(userId)) this.user2LeftAt = null;
 	}
 }

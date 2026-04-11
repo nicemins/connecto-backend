@@ -1,5 +1,6 @@
 package com.pm.connecto.chat.service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -156,7 +157,12 @@ public class ChatService {
 		}
 		size = Math.min(size, MAX_PAGE_SIZE);
 		Pageable pageable = PageRequest.of(page, size);
-		Page<ChatMessage> msgPage = chatMessageRepository.findByRoomIdOrderByCreatedAtDesc(roomId, pageable);
+
+		// 나간 이후 메시지만 조회 (나간 시각 이전 기록 숨김)
+		LocalDateTime leftAt = room.getLeftAt(userId);
+		Page<ChatMessage> msgPage = leftAt != null
+			? chatMessageRepository.findByRoomIdAndCreatedAtAfterOrderByCreatedAtDesc(roomId, leftAt, pageable)
+			: chatMessageRepository.findByRoomIdOrderByCreatedAtDesc(roomId, pageable);
 
 		// 첫 페이지 조회 시 자동 읽음 처리
 		Long lastReadMessageId = null;
@@ -167,13 +173,21 @@ public class ChatService {
 			}
 		}
 
+		// 상대방의 lastReadMessageId 조회 — 프론트 읽음 표시 렌더링용
+		Long otherUserId = room.getOtherUser(userId).getId();
+		Long partnerLastReadMessageId = chatRoomMemberRepository
+			.findByRoomIdAndUserId(roomId, otherUserId)
+			.map(ChatRoomMember::getLastReadMessageId)
+			.orElse(null);
+
 		ChatMessagePageResponse pageResponse = new ChatMessagePageResponse(
 			msgPage.getContent().stream().map(ChatMessageResponse::from).toList(),
 			msgPage.hasNext(),
 			page,
-			size
+			size,
+			partnerLastReadMessageId
 		);
-		return new MessagesResult(pageResponse, room.getOtherUser(userId).getId(), lastReadMessageId);
+		return new MessagesResult(pageResponse, otherUserId, lastReadMessageId);
 	}
 
 	/**
@@ -279,6 +293,10 @@ public class ChatService {
 		if (blockRepository.existsBlockBetween(senderId, otherUserId)) {
 			throw new ForbiddenException(ErrorCode.MESSAGE_BLOCKED);
 		}
+		// 수신자가 나간 상태이면 재진입 — 방 목록에 다시 노출
+		if (room.hasLeft(otherUserId)) {
+			room.rejoin(otherUserId);
+		}
 		User sender = userRepository.getReferenceById(senderId);
 		ChatMessage msg = chatMessageRepository.save(new ChatMessage(room, sender, content));
 		room.updateTimestamp(msg.getCreatedAt());
@@ -296,6 +314,10 @@ public class ChatService {
 		Long otherUserId = room.getOtherUser(senderId).getId();
 		if (blockRepository.existsBlockBetween(senderId, otherUserId)) {
 			throw new ForbiddenException(ErrorCode.MESSAGE_BLOCKED);
+		}
+		// 수신자가 나간 상태이면 재진입
+		if (room.hasLeft(otherUserId)) {
+			room.rejoin(otherUserId);
 		}
 		User sender = userRepository.getReferenceById(senderId);
 		ChatMessage msg = chatMessageRepository.save(new ChatMessage(room, sender, imageUrl, MessageType.IMAGE));
