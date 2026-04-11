@@ -303,6 +303,22 @@ public class ChatService {
 		return new SavedMessage(ChatMessageResponse.from(msg, senderId), senderId, otherUserId);
 	}
 
+	/**
+	 * 채팅방 나가기 — 요청 유저 기준 숨김 처리 (상대방 채팅방 유지)
+	 * 이미 나간 방 재요청 시 200 OK (멱등성 보장)
+	 */
+	@Transactional
+	public void leaveRoom(Long roomId, Long userId) {
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(() -> new ResourceNotFoundException(ErrorCode.CHAT_ROOM_NOT_FOUND));
+		if (!room.isMember(userId)) {
+			throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+		}
+		if (!room.hasLeft(userId)) {
+			room.leave(userId);
+		}
+	}
+
 	private ChatRoomResponse toResponse(ChatRoom room, Long userId) {
 		Long friendId = room.getOtherUser(userId).getId();
 		Profile friendProfile = profileRepository.findByUserId(friendId).orElse(null);

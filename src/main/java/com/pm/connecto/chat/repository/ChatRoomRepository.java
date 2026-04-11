@@ -17,6 +17,8 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
 	Optional<ChatRoom> findBetween(@Param("userId1") Long userId1, @Param("userId2") Long userId2);
 
 	@Query("SELECT r FROM ChatRoom r JOIN FETCH r.user1 JOIN FETCH r.user2 " +
-		"WHERE r.user1.id = :userId OR r.user2.id = :userId ORDER BY r.updatedAt DESC")
+		"WHERE (r.user1.id = :userId AND r.user1Left = false) " +
+		"   OR (r.user2.id = :userId AND r.user2Left = false) " +
+		"ORDER BY r.updatedAt DESC")
 	List<ChatRoom> findAllByUserIdOrderByUpdatedAtDesc(@Param("userId") Long userId);
 }

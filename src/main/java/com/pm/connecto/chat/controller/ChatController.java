@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.Nullable;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -173,6 +174,20 @@ public class ChatController {
 			));
 		}
 		return ApiResponse.success(Map.of("unreadCount", result.unreadCount()));
+	}
+
+	@Operation(summary = "채팅방 나가기", description = "채팅방에서 나갑니다. 상대방 채팅방은 유지됩니다. 이미 나간 방 재요청 시 200 OK.")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "나가기 성공"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인이 속하지 않은 방"),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 방")
+	})
+	@DeleteMapping("/rooms/{roomId}")
+	public ApiResponse<Void> leaveRoom(
+		@Parameter(description = "채팅방 ID") @PathVariable Long roomId
+	) {
+		chatService.leaveRoom(roomId, userContext.getUserId());
+		return ApiResponse.success(null);
 	}
 
 	@Operation(summary = "미읽음 카운트 조회", description = "특정 채팅방의 미읽음 메시지 수를 조회합니다.")

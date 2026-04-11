@@ -52,6 +52,12 @@ public class ChatRoom {
 	@Column(nullable = false)
 	private LocalDateTime updatedAt;
 
+	@Column(nullable = false)
+	private boolean user1Left = false;
+
+	@Column(nullable = false)
+	private boolean user2Left = false;
+
 	@PrePersist
 	protected void onCreate() {
 		createdAt = updatedAt = LocalDateTime.now();
@@ -80,5 +86,16 @@ public class ChatRoom {
 
 	public void updateTimestamp(LocalDateTime time) {
 		this.updatedAt = time;
+	}
+
+	public boolean hasLeft(Long userId) {
+		if (user1.getId().equals(userId)) return user1Left;
+		if (user2.getId().equals(userId)) return user2Left;
+		return false;
+	}
+
+	public void leave(Long userId) {
+		if (user1.getId().equals(userId)) this.user1Left = true;
+		else if (user2.getId().equals(userId)) this.user2Left = true;
 	}
 }
